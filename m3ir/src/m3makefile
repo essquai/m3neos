@@ -1,0 +1,42 @@
+% Copyright (C) 1994, Digital Equipment Corporation
+% All rights reserved.
+% See the file COPYRIGHT for a full description.
+%
+% Last modified on Tue Nov 22 07:56:45 PST 1994 by kalsow
+%      modified on Mon May 24 15:12:25 PDT 1993 by muller
+
+
+import ("libm3")
+import ("sysutils")
+
+Module ("Target")
+Module ("TargetMap")
+Module ("TInt")
+Module ("TWord")
+Module ("TFloat")
+
+Module ("M3Buf")
+Module ("M3FP")
+Module ("M3File")
+Module ("M3ID")
+Module ("M3Process")
+Module ("M3Timers")
+
+Module ("M3IR")
+Interface ("M3IR_Asm")
+
+%Module ("M3CG_Check")
+%Module ("M3CG_Tee")
+%% Module ("M3CG_Clean")
+%Module ("M3CG_Rd")
+%Module ("M3CG_Wr")
+%Module ("M3CG_Binary")
+%Module ("M3CG_BinRd")
+%Module ("M3CG_BinWr")
+%Module ("M3CG_MultiPass")
+%Module ("M3CG_DoNothing")
+%Module ("M3CG_AssertFalse")
+Module ("M3RT")
+
+build_standalone ()
+Library ("m3ir")

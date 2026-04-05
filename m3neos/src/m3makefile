@@ -1,0 +1,23 @@
+import ("m3fe")
+import ("m3make")
+import ("m3link")
+
+Module ("Arg")
+Module ("Msg")
+Module ("Builder")
+Module ("Dirs")
+Module ("Utils")
+Module ("Makefile")
+Interface ("Version")
+
+Module ("M3Build")
+Module ("M3Options")
+Module ("M3Loc")
+Module ("M3Req")
+Module ("M3Unit")
+Module ("M3Backend")
+
+implementation ("Main")
+
+build_standalone ()
+Program ("m3neos")

@@ -1,0 +1,12 @@
+import ("m3core")
+import ("libm3")
+import ("m3ir")
+
+Module ("Host")
+Module ("Error")
+Module ("M3Front")
+Module ("M3Compiler")
+Module ("M3Header")
+
+build_standalone ()
+Library ("m3fe")
