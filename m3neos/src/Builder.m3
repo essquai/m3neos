@@ -1117,7 +1117,6 @@ PROCEDURE CompileOne (s: State;  u: M3Unit.T) =
         IF u_object = NIL THEN
           u_object := "NIL";
         END;
-        DebugF ("CompileOne FinalNameForUnit(", u, "):" & u_object);
       END;
       CASE u.kind OF
       | UK.I3, UK.M3       => CompileM3 (s, u);
@@ -1175,7 +1174,9 @@ PROCEDURE CompileM3X (s: State; u: M3Unit.T) =
     IF (u.link_info = NIL) THEN
       DebugF ("reading link info from ", u);
       units := GetUnitLinkInfo (u, imported := FALSE);
-      IF (units = NIL) THEN BadFile ("missing link info", u); END;
+      (* IF (units = NIL) THEN BadFile ("missing link info", u); END; *)
+      IF (u.link_info = NIL) THEN Msg.UsageError ("UE3: missing link info ", M3ID.ToText(u.name), Wr.EOL); END;
+
       u.link_info := units.unit;
       <*ASSERT units.next = NIL*>
     END;
@@ -1309,7 +1310,7 @@ PROCEDURE CompileM3 (s: State; u: M3Unit.T) =
       DebugF ("compile ", u);
       IF PushOneM3 (s, u) THEN
         Merge (s, u);
-      END; 
+      END;
     END;
   END CompileM3;
 
@@ -1481,7 +1482,9 @@ PROCEDURE PushOneM3 (s: State;  u: M3Unit.T): BOOLEAN =
       Temps_Add (temps, s, asmName);
       Temps_Add (temps, s, CCodeName);
     END;
-
+Msg.Info("PushOneM3 cm3OutName ", cm3OutName, Wr.EOL);
+Msg.Info("PushOneM3 cm3IRName ", cm3IRName, Wr.EOL);
+Msg.Info("PushOneM3 wasmName ", wasmName, Wr.EOL);
     ok := RunM3Front (s, u, cm3OutName);
     IF NOT ok THEN 
       Msg.Error (NIL, "m3front failed compiling: ", UnitPath (u));
@@ -1623,7 +1626,9 @@ PROCEDURE Merge (s: State;  u: M3Unit.T) =
   BEGIN
     ETimer.Push (M3Timers.merge);
 
-    IF (u.link_info = NIL) THEN BadFile ("missing link info", u); END;
+    (* Really BadFile *)
+    (* IF (u.link_info = NIL) THEN BadFile ("missing link info", u); END; *)
+    IF (u.link_info = NIL) THEN Msg.Debug ("UE2:missing link info ", M3ID.ToText(u.name), Wr.EOL); END;
 
     CheckImports (s, u.link_info);
 
@@ -1637,7 +1642,8 @@ PROCEDURE Remerge (s: State;  u: M3Unit.T) =
   BEGIN
     ETimer.Push (M3Timers.merge);
 
-    IF (u.link_info = NIL) THEN BadFile ("missing link info", u); END;
+    (* IF (u.link_info = NIL) THEN BadFile ("missing link info", u); END; *)
+    IF (u.link_info = NIL) THEN Msg.UsageError ("UE1:missing link info ", M3ID.ToText(u.name), Wr.EOL); END;
 
     DebugF ("adding new magic for ", u);
     AddMagic (s, u.link_info);
@@ -1864,6 +1870,7 @@ PROCEDURE Pass0_InitCodeGenerator (env: Env): M3IR.T =
   BEGIN
     env.cg     := NIL;
     env.target_wr := Utils.OpenWriter (env.object, fatal := FALSE);
+    Msg.Info("Pass0_InitCodeGenerator ", env.sideIRName, Wr.EOL);
     IF (env.target_wr # NIL) THEN
       env.cg := M3Backend.Open (
         env.globals.result_name,
@@ -3235,10 +3242,6 @@ PROCEDURE FinalNameForUnitInternal (s: State; u: M3Unit.T; boot: BOOLEAN): TEXT 
       host := mode IN Target.BackendHostSet;
   BEGIN
     (* TODO handle boot mode *)
-    DebugF("FinalName Kind", u, Fmt.Int(ORD(u.kind)));
-    DebugF("FinalName Mode", u, Fmt.Int(ORD(mode)));
-    DebugF("FinalName Host", u, Fmt.Bool(host));
-    DebugF("FinalName Wasm", u, Fmt.Bool(wasm));
     IF host THEN 
       (* Native objects *) 
       CASE ext OF

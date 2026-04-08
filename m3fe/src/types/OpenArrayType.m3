@@ -1,0 +1,370 @@
+(* Copyright (C) 1992, Digital Equipment Corporation           *)
+(* All rights reserved.                                        *)
+(* See the file COPYRIGHT for a full description.              *)
+
+(* File: OpenArrayType.m3                                      *)
+(* Last modified on Tue May 23 15:24:22 PDT 1995 by kalsow     *)
+(*      modified on Sun Feb 24 04:39:01 1991 by muller         *)
+
+MODULE OpenArrayType;
+
+IMPORT M3, IR, Type, TypeRep, Error, Target, TInt, Word;
+IMPORT ArrayType, PackedType, RecordType, TipeMap, TipeDesc;
+
+TYPE
+  P = Type.T BRANDED "OpenArrayType.P" OBJECT
+        EltType                 : Type.T  := NIL;
+        NonopenEltType          : Type.T  := NIL;
+        openDepth               : INTEGER := 0;
+        NonopenEltAlign         : INTEGER := 0;
+        NonopenEltPack          : INTEGER := 0;
+        NonopenEltsBitAddressed : BOOLEAN := FALSE;
+        (* ^Could be FALSE even if elements are BITS n FOR, if 
+            n is divisible by 8. *) 
+      OVERRIDES
+        check      := Check;
+        no_straddle:= IsStraddleFree;
+        isEqual    := EqualChk;
+        isSubtype  := Subtyper;
+        compile    := Compiler;
+        initCost   := InitCoster;
+        initValue  := GenInit;
+        mapper     := GenMap;
+        gen_desc   := GenDesc;
+        fprint     := FPrinter;
+      END;
+
+(* EXPORTED: *)
+PROCEDURE New (EltType: Type.T): Type.T =
+  VAR p: P;
+  BEGIN
+    p := NEW (P);
+    TypeRep.Init (p, Type.Class.OpenArray);
+    p.EltType := EltType;
+    p.openDepth := -1;
+    RETURN p;
+  END New;
+
+PROCEDURE Reduce (t: Type.T): P =
+  (* Strip Named and Packed.  NIL if that's not an open array type. *) 
+  BEGIN
+    t := Type.StripPacked (t);
+    IF (t = NIL) OR (t.info.class # Type.Class.OpenArray) THEN RETURN NIL END;
+    RETURN t;
+  END Reduce;
+
+(* EXPORTED: *)
+PROCEDURE Is (t: Type.T): BOOLEAN =
+  BEGIN
+    RETURN (Reduce (t) # NIL);
+  END Is;
+
+(* EXPORTED: *)
+PROCEDURE Split (t: Type.T;  VAR EltType: Type.T): BOOLEAN =
+  VAR p := Reduce (t);
+  BEGIN
+    IF (p = NIL) THEN RETURN FALSE END;
+    EltType := p.EltType;
+    RETURN TRUE;
+  END Split;
+
+(* EXPORTED: *)
+PROCEDURE EltPack (t: Type.T): INTEGER =
+(* If 'array' is an open array type, returns the packed size in bits of
+   the nearest non-open elements.  Otherwise, returns 0. *)
+  VAR p := Reduce (t);
+  BEGIN
+    IF (p # NIL)
+      THEN RETURN p.NonopenEltPack;
+      ELSE RETURN 0;
+    END;
+  END EltPack;
+
+(* EXPORTED: *)
+PROCEDURE EltAlign (t: Type.T): INTEGER =
+(* If 'array' is an open array type, returns the bit alignment of
+   the nearest non-open or non-array elements.
+   *BUT NOTE*: If elements are packed, this is the alignment of the
+   unpacked element type !!!
+   Otherwise, returns Target.Byte. *)
+(* PRE: t is Checked. *)
+  VAR p := Reduce (t);
+  BEGIN
+    IF (p # NIL)
+      THEN RETURN p.NonopenEltAlign;
+      ELSE RETURN Target.Byte;
+    END;
+  END EltAlign;
+
+(* EXPORTED: *)
+PROCEDURE EltsAreBitAddressed (t: Type.T): BOOLEAN =
+(* Returns TRUE if t is an open array whose nearest non-open elements are not
+   at least byte-aligned. *)
+  VAR p:= Reduce (t);
+  BEGIN
+    RETURN (p # NIL) AND (p.NonopenEltsBitAddressed);
+  END EltsAreBitAddressed;
+
+(* EXPORTED: *)
+PROCEDURE OpenDepth (t: Type.T): INTEGER =
+  VAR p := Reduce (t);
+  BEGIN
+    IF (p = NIL) THEN RETURN 0 END;
+    IF (p.openDepth <= 0) THEN  p.openDepth := 1 + OpenDepth (p.EltType)  END;
+    RETURN p.openDepth;
+  END OpenDepth;
+
+(* EXPORTED: *)
+PROCEDURE NonopenEltType (t: Type.T): Type.T =
+(* If 't' is an n-dimensional open array, returns the type of the base
+   elements; otherwise, returns t. That is, strip all the ARRAY OF in 
+   front of t *)
+  VAR p := Reduce (t);
+  BEGIN
+    IF (p = NIL) THEN RETURN t END;
+    IF (p.NonopenEltType = NIL) THEN
+      p.NonopenEltType := NonopenEltType (p.EltType)
+    END;
+    RETURN p.NonopenEltType;
+  END NonopenEltType;
+
+(* Externally dispatched-to: *)
+PROCEDURE Check (p: P) =
+  VAR
+    LNonopenEltType, NonopenEltBase : Type.T;
+    NonopenEltInfo : Type.Info;
+    dope_align : INTEGER
+      := MAX (MAX (Target.Byte, Target.Structure_size_boundary),
+              MAX (Target.Address.align, Target.Integer.align));
+  BEGIN
+    p.EltType := Type.Check (p.EltType);
+    LNonopenEltType := Type.CheckInfo (NonopenEltType (p), NonopenEltInfo);
+    p.NonopenEltAlign := NonopenEltInfo.alignment;
+
+    IF (NonopenEltInfo.class = Type.Class.Packed) THEN
+      PackedType.Split
+        (LNonopenEltType, (*OUT*) p.NonopenEltPack, (*OUT*) NonopenEltBase);
+      IF Type.IsStructured (LNonopenEltType) THEN
+        IF p.NonopenEltPack >= Target.Byte
+           AND p.NonopenEltPack MOD p.NonopenEltAlign # 0 THEN
+          Error.Msg
+            ("CM3 restriction: scalar components of packed, structured array "
+              & "elements cannot cross word boundaries");
+          p.NonopenEltPack
+            := RecordType.RoundUp (NonopenEltInfo.size, p.NonopenEltAlign);
+        END
+      ELSE (* Scalar packed elements. *)
+        IF Target.Word64.size MOD p.NonopenEltPack # 0 THEN
+           (* ^Allow 64-bit element pack, even on 32-bit target. *) 
+          Error.Msg
+            ("CM3 restriction: open array scalar element bit size must evenly "
+             & "divide 64 bits.");
+          p.NonopenEltPack := p.NonopenEltAlign;
+        END;
+      END;
+      p.NonopenEltsBitAddressed := p.NonopenEltPack < Target.Byte;
+    ELSE (* Not packed; Pack to satisfy their natural alignment. *)
+      p.NonopenEltPack
+        := RecordType.RoundUp (NonopenEltInfo.size, p.NonopenEltAlign);
+      p.NonopenEltsBitAddressed := FALSE;
+    END;
+
+    dope_align := MAX (p.NonopenEltAlign, dope_align); 
+
+    p.info.size      := -1;
+    p.info.min_size  := -1;
+    p.info.alignment := dope_align;
+    p.info.addr_align:= p.NonopenEltAlign;
+    p.info.mem_type  := IR.Type.Addr;
+    p.info.stk_type  := IR.Type.Addr;
+    p.info.class     := Type.Class.OpenArray;
+    p.info.isTraced  := NonopenEltInfo.isTraced;
+    p.info.isEmpty   := NonopenEltInfo.isEmpty;
+    p.info.isSolid   := NonopenEltInfo.isSolid
+                        AND (p.NonopenEltPack <= NonopenEltInfo.size);
+    p.info.hash      := Word.Plus
+                          ( NonopenEltInfo.hash,
+                            Word.Plus
+                              ( Word.Times (23, OpenDepth (p)),
+                                Word.Times (37, p.NonopenEltPack)
+                              )
+                          );
+  END Check;
+
+(* Externally dispatched-to: *)
+PROCEDURE IsStraddleFree
+  (p: P;  offset: INTEGER; <*UNUSED*> IsEltOrField: BOOLEAN): BOOLEAN =
+  VAR
+    x0 := offset MOD Target.Word.size;  x := x0;
+    t  := NonopenEltType (p);
+  BEGIN
+    REPEAT
+      IF NOT Type.StraddleFreeScalars (t, offs := x, IsEltOrField := TRUE)
+      THEN RETURN FALSE
+      END;
+      x := (x + p.NonopenEltPack) MOD Target.Word.size;
+    UNTIL (x = x0);
+    RETURN TRUE;
+  END IsStraddleFree;
+
+(* EXPORTED: *)
+PROCEDURE DeclareDopeTemp (t: Type.T): IR.Var =
+(* If 't' is an open array type, declare and return a temporary variable to
+   hold its dope vector, otherwise abort. *)
+  VAR
+    p    := Reduce (t);
+    size := Target.Address.pack + OpenDepth (p) * Target.Integer.pack;
+  BEGIN
+    RETURN IR.Declare_temp (size, Target.Address.align,
+                            IR.Type.Struct, in_memory := TRUE);
+  END DeclareDopeTemp;
+
+(* Externally dispatched-to: *)
+PROCEDURE Compiler (p: P) =
+  VAR size := Target.Address.pack + OpenDepth (p) * Target.Integer.pack;
+  BEGIN
+    Type.Compile (p.EltType);
+    IR.Declare_open_array (Type.GlobalUID(p), Type.GlobalUID(p.EltType), size);
+  END Compiler;
+
+(* Externally dispatched-to: *)
+PROCEDURE EqualChk (a: P;  t: Type.T;  x: Type.Assumption): BOOLEAN =
+  VAR b: P := t;
+  BEGIN
+    RETURN (OpenDepth (a) = OpenDepth (b))
+       AND Type.IsEqual (a.EltType, b.EltType, x);
+  END EqualChk;
+
+(* Externally dispatched-to: *)
+PROCEDURE Subtyper (a: P;  tb: Type.T): BOOLEAN =
+  VAR ta, ia, ea, ib, eb: Type.T;  b: P;
+  BEGIN
+    ta := a;
+
+    (* peel off the common open dimensions *)
+    LOOP
+      a := Reduce (ta);
+      b := Reduce (tb);
+      IF (a = NIL) OR (b = NIL) THEN EXIT END;
+      ta := a.EltType;
+      tb := b.EltType;
+    END;
+
+    (* peel off the remaining fixed dimensions of A and open dimensions of B *)
+    LOOP
+      b := Reduce (tb);
+      IF (b = NIL) OR NOT ArrayType.Split (ta, ia, ea) THEN EXIT END;
+      ta := ea;
+      tb := b.EltType;
+    END;
+
+    (* peel off the fixed dimensions as long as the sizes are equal *)
+    WHILE ArrayType.Split (ta, ia, ea) AND ArrayType.Split (tb, ib, eb) DO
+      IF NOT TInt.EQ (Type.Number (ia), Type.Number (ib)) THEN
+        RETURN FALSE;
+      END;
+      ta := ea;
+      tb := eb;
+    END;
+
+    RETURN Type.IsEqual (ta, tb, NIL);
+  END Subtyper;
+
+(* Externally dispatched-to: *)
+PROCEDURE InitCoster (p: P; zeroed: BOOLEAN): INTEGER =
+  VAR n, m, res: Target.Int;  x: INTEGER;
+  BEGIN
+    IF    TInt.FromInt (Type.InitCost (p.EltType, zeroed), m)
+      AND TInt.FromInt (20, n) (* guess that there are 20 elements *)
+      AND TInt.Multiply (m, n, res)
+      AND TInt.ToInt (res, x)
+      THEN RETURN x;
+      ELSE RETURN LAST (INTEGER);
+    END;
+  END InitCoster;
+
+(* Externally dispatched-to: *)
+PROCEDURE GenInit (p: P;  zeroed: BOOLEAN) =
+  VAR
+    depth := OpenDepth (p);
+    elt   := NonopenEltType (p);
+    top   : IR.Label;
+    cnt   : IR.Val;
+    max   : IR.Val;
+    array := IR.Pop (); (* capture the array's L-value *)
+  BEGIN
+    (* Gen RT code to compute the product number of non-open elements *)
+    FOR i := 0 TO depth-1 DO
+      IR.Push (array);
+      IR.Open_size (i);
+      IF (i # 0) THEN IR.Multiply (Target.Word.cg_type) END;
+    END;
+    max := IR.Pop ();
+
+    (* capture the pointer to the array elements *)
+    IR.Push (array);
+    IR.Open_elt_ptr (ArrayType.EltAlign (p));
+    IR.Free (array);
+    array := IR.Pop ();
+
+    (* put down a loop to map the elements *)
+    IR.Load_integer (Target.Integer.cg_type, TInt.Zero);
+    cnt := IR.Pop_temp ();
+    top := IR.Next_label (2);
+    IR.Jump (top+1);
+    IR.Set_label (top);
+
+    (* map ARRAY[cnt] *)
+    IR.Push (array);
+    IR.Push (cnt);
+    IR.Index_bytes (p.NonopenEltPack);
+    Type.InitValue (elt, zeroed);
+
+    (* cnt := cnt + 1 *)
+    IR.Push (cnt);
+    IR.Load_integer (Target.Integer.cg_type, TInt.One);
+    IR.Add (Target.Integer.cg_type);
+    IR.Store_temp (cnt);
+
+    (* IF (cnt < NUMBER(ARRAY) GOTO TOP-OF-LOOP *)
+    IR.Set_label (top+1);
+    IR.Push (cnt);
+    IR.Push (max);
+    IR.If_compare (Target.Integer.cg_type, IR.Cmp.LT, top, IR.Likely);
+
+    (* release the temps *)
+    IR.Free (cnt);
+    IR.Free (max);
+    IR.Free (array);
+  END GenInit;
+
+(* Externally dispatched-to: *)
+PROCEDURE GenMap (p: P;  offset: INTEGER;  <*UNUSED*> size: INTEGER;
+                  refs_only: BOOLEAN) =
+  VAR a: INTEGER;
+  BEGIN
+    TipeMap.Add (offset, TipeMap.Op.OpenArray_1, OpenDepth (p));
+    a := TipeMap.GetCursor ();
+    Type.GenMap (NonopenEltType (p), a, p.NonopenEltPack, refs_only);
+    TipeMap.Add (a + p.NonopenEltPack, TipeMap.Op.Stop, 0);
+  END GenMap;
+
+(* Externally dispatched-to: *)
+PROCEDURE GenDesc (p: P) =
+  BEGIN
+    IF TipeDesc.AddO (TipeDesc.Op.OpenArray, p) THEN
+      TipeDesc.AddI (OpenDepth (p));
+      Type.GenDesc (NonopenEltType (p));
+    END;
+  END GenDesc;
+
+(* Externally dispatched-to: *)
+PROCEDURE FPrinter (p: P;  VAR x: M3.FPInfo) =
+  BEGIN
+    x.tag      := "OPENARRAY";
+    x.n_nodes  := 1;
+    x.nodes[0] := p.EltType;
+  END FPrinter;
+
+BEGIN
+END OpenArrayType.

@@ -1,0 +1,432 @@
+(* Copyright (C) 1992, Digital Equipment Corporation           *)
+(* All rights reserved.                                        *)
+(* See the file COPYRIGHT for a full description.              *)
+
+(* File: Exceptionz.m3                                         *)
+(* Last Modified On Tue May 23 15:38:44 PDT 1995 by kalsow     *)
+(*      Modified On Thu Dec  5 17:20:35 PST 1991 by muller     *)
+
+MODULE Exceptionz;
+
+IMPORT M3, M3ID, M3FP, IR, Value, ValueRep, Type, Scope, Formal, M3RT;
+IMPORT Error, Expr, Token, Decl, Text, Procedure, AssignStmt, Addr, Scanner;
+IMPORT Target, RefType, ProcBody, Module, RunTyme, Marker, M3Buf, Int;
+FROM Scanner IMPORT GetToken, Match, MatchID, cur;
+
+TYPE
+  T = Value.T BRANDED "Exceptionz.T" OBJECT
+        tipe    : Type.T;
+        refTipe : Type.T;
+        offset  : INTEGER;
+        coffset : INTEGER;
+        uid     : INTEGER;
+        implicit: BOOLEAN;
+        next    : T;
+      OVERRIDES
+        typeCheck   := Check;
+        set_globals := SetGlobals;
+        load        := Load;
+        declare     := Declarer;
+        const_init  := ValueRep.NoInit;
+        need_init   := ValueRep.Never;
+        lang_init   := ValueRep.NoInit;
+        user_init   := ValueRep.NoInit;
+        toExpr      := ValueRep.NoExpr;
+        toType      := ValueRep.NoType;
+        typeOf      := ValueRep.TypeVoid;
+        repTypeOf   := ValueRep.TypeVoid;
+        base        := ValueRep.Self;
+        add_fp_tag  := AddFPTag;
+        fp_type     := FPType;
+      END;
+
+TYPE
+  Raiser = ProcBody.T OBJECT
+    self   : T;
+    arg    : IR.Var;
+    module : IR.Var;
+    line   : IR.Var;
+  OVERRIDES
+    gen_decl := EmitDecl;
+    gen_body := EmitBody;
+  END;
+
+(* EXPORTED: *)
+PROCEDURE ParseDecl (READONLY att: Decl.Attributes) =
+  TYPE TK = Token.T;
+  VAR t: T; id: M3ID.T;
+  BEGIN
+    Match (TK.tEXCEPTION);
+    WHILE (cur.token = TK.tIDENT) DO
+      id := MatchID ();
+      t := NEW (T);
+      ValueRep.Init (t, id, Value.Class.Exception);
+      t.readonly := TRUE;
+      t.unused   := att.isUnused;
+      t.obsolete := att.isObsolete;
+      t.tipe     := NIL;
+      t.refTipe  := NIL;
+      t.offset   := 0;
+      t.coffset  := 0;
+      t.uid      := 0;
+      t.implicit := att.isImplicit;
+      IF (cur.token = TK.tLPAREN) THEN
+        GetToken (); (* ( *)
+        t.tipe := Type.Parse ();
+        Match (TK.tRPAREN);
+      END;
+      Scope.Insert (t);
+      Match (TK.tSEMI);
+    END;
+  END ParseDecl;
+
+(* EXPORTED: *)
+PROCEDURE EmitRaise (v: Value.T;  arg: Expr.T) =
+  VAR
+    t: T := Value.Base (v);
+    expr_type: Type.T;
+    arg_type: IR.Type;
+    info: Type.Info;
+    p := RunTyme.LookUpProc (RunTyme.Hook.RaiseEx);
+    tmp: IR.Val;
+  BEGIN
+    Value.Declare (t);
+    <*ASSERT t.offset # 0*>
+
+    IF (arg = NIL) THEN
+      Procedure.StartCall (p);
+      IF Target.DefaultCall.args_left_to_right THEN
+        LoadSelf (t);
+        IR.Pop_param (IR.Type.Addr);
+        IR.Load_nil ();
+        IR.Pop_param (IR.Type.Addr);
+        PassLocation ();
+      ELSE
+        PassLocation ();
+        IR.Load_nil ();
+        IR.Pop_param (IR.Type.Addr);
+        LoadSelf (t);
+        IR.Pop_param (IR.Type.Addr);
+      END;
+      Procedure.EmitCall (p);
+    ELSIF (t.refTipe = NIL) THEN
+      expr_type := Expr.TypeOf (arg);
+      expr_type := Type.CheckInfo (expr_type, info);
+      arg_type := info.stk_type;
+      Expr.Prep (arg);
+      AssignStmt.EmitRTCheck (t.tipe, arg);
+      tmp := IR.Pop ();
+      Procedure.StartCall (p);
+      IF Target.DefaultCall.args_left_to_right THEN
+        LoadSelf (t);
+        IR.Pop_param (IR.Type.Addr);
+        IR.Push (tmp);
+        IF (arg_type # IR.Type.Addr) THEN
+          IR.Loophole (arg_type, IR.Type.Addr);
+        END;
+        IR.Pop_param (IR.Type.Addr);
+        PassLocation ();
+      ELSE
+        PassLocation ();
+        IR.Push (tmp);
+        IF (arg_type # IR.Type.Addr) THEN
+          IR.Loophole (arg_type, IR.Type.Addr);
+        END;
+        IR.Pop_param (IR.Type.Addr);
+        LoadSelf (t);
+        IR.Pop_param (IR.Type.Addr);
+      END;
+      Procedure.EmitCall (p);
+      IR.Free (tmp);
+    ELSE (* large argument => call the raise procedure *)
+      expr_type := Expr.TypeOf (arg);
+      expr_type := Type.CheckInfo (expr_type, info);
+      arg_type := info.stk_type;
+      Expr.Prep (arg);
+      AssignStmt.EmitRTCheck (t.tipe, arg);
+      tmp := IR.Pop ();
+      IR.Start_call_indirect (IR.Type.Void, Target.DefaultCall);
+      IF Target.DefaultCall.args_left_to_right THEN
+        IR.Push (tmp);
+        IF (arg_type # IR.Type.Addr) THEN Formal.GenCopy (expr_type) END;
+        IR.Pop_param (IR.Type.Addr);
+        PassLocation ();
+      ELSE
+        PassLocation ();
+        IR.Push (tmp);
+        IF (arg_type # IR.Type.Addr) THEN Formal.GenCopy (expr_type) END;
+        IR.Pop_param (IR.Type.Addr);
+      END;
+      LoadSelf (t);
+      IR.Add_offset (M3RT.ED_SIZE);
+      IR.Boost_addr_alignment (Target.Address.align);
+      IR.Load_indirect (IR.Type.Addr, 0, Target.Address.size, IR.ProcAlign ());
+      IR.Gen_Call_indirect (IR.Type.Void, Target.DefaultCall);
+      EVAL Marker.EmitExceptionTest (Procedure.Signature (p), need_value := FALSE);
+      IR.Free (tmp);
+    END;
+  END EmitRaise;
+
+PROCEDURE LoadSelf (t: T) =
+  BEGIN
+    IF (t.imported) THEN
+      Module.LoadGlobalAddr (Scope.ToUnit (t), t.offset, is_const := FALSE);
+      IR.Load_indirect (IR.Type.Addr, 0, Target.Address.size);
+      IR.Boost_addr_alignment (Target.Address.align);
+    ELSE
+      Module.LoadGlobalAddr (Scope.ToUnit (t), t.coffset, is_const := TRUE);
+    END;
+  END LoadSelf;
+
+PROCEDURE PassLocation () =
+  (* push the "module, linenumber" parameters *)
+  VAR
+    globals   := Module.GlobalData (is_const := FALSE);
+    this_file : TEXT;
+    this_line : INTEGER;
+  BEGIN
+    Scanner.Here (this_file, this_line);
+    IF Target.DefaultCall.args_left_to_right THEN
+      IR.Load_addr_of (globals, 0, IR.Max_alignment);
+      IR.Pop_param (IR.Type.Addr);
+      IR.Load_intt (this_line);
+      IR.Pop_param (Target.Integer.cg_type);
+    ELSE
+      IR.Load_intt (this_line);
+      IR.Pop_param (Target.Integer.cg_type);
+      IR.Load_addr_of (globals, 0, IR.Max_alignment);
+      IR.Pop_param (IR.Type.Addr);
+    END;
+  END PassLocation;
+
+(* EXPORTED: *)
+PROCEDURE ArgByReference (type: Type.T): BOOLEAN =
+  VAR info: Type.Info;
+  BEGIN
+    EVAL Type.CheckInfo (type, info);
+    RETURN (info.size > Target.Address.size) OR Type.IsStructured (type);
+  END ArgByReference;
+
+(* Externally dispatched-to: *)
+PROCEDURE Check (t: T;  <*UNUSED*> VAR cs: Value.CheckState) =
+  VAR info: Type.Info;
+  BEGIN
+    IF (t.tipe # NIL) THEN
+      t.tipe := Type.CheckInfo (t.tipe, info);
+      IF (info.size < 0) THEN
+        Error.ID (t.name, "argument type must have fixed length");
+      END;
+      IF ArgByReference (t.tipe) THEN
+        t.refTipe := RefType.New (Type.StripPacked (t.tipe), TRUE, NIL);
+(* FIXME: Most uses of t.tipe need to be StripPacked. *)
+        t.refTipe := Type.Check (t.refTipe);
+      END;
+    END;
+  END Check;
+
+(* EXPORTED: *)
+PROCEDURE ArgType (v: Value.T): Type.T =
+  BEGIN
+    TYPECASE Value.Base (v) OF
+    | NULL => RETURN NIL;
+    | T(t) => RETURN t.tipe;
+    ELSE      RETURN NIL;
+    END;
+  END ArgType;
+
+(* EXPORTED: *)
+PROCEDURE UID (v: Value.T): INTEGER =
+  BEGIN
+    TYPECASE Value.Base (v) OF
+    | NULL => RETURN 0;
+    | T(t) => <*ASSERT t.uid # 0*> RETURN t.uid;
+    ELSE      RETURN 0;
+    END;
+  END UID;
+
+(* EXPORTED: *)
+PROCEDURE IsImplicit (v: Value.T): BOOLEAN =
+  BEGIN
+    TYPECASE Value.Base (v) OF
+    | NULL => RETURN FALSE;
+    | T(t) => RETURN t.implicit;
+    ELSE      RETURN FALSE;
+    END;
+  END IsImplicit;
+
+(* Externally dispatched-to: *)
+PROCEDURE Load (t: T) =
+  BEGIN
+    Value.Declare (t);
+    LoadSelf (t);
+  END Load;
+
+(* Externally dispatched-to: *)
+PROCEDURE SetGlobals (t: T) =
+  VAR name: TEXT;  size: INTEGER;
+  BEGIN
+    (* Type.SetGlobals (t.tipe); *)
+    (* Type.SetGlobals (t.refTipe); *)
+    IF (t.offset # 0) OR (t.external) THEN RETURN END;
+
+    name := Value.GlobalName (t);
+    size := M3RT.ED_SIZE;
+    IF (t.refTipe # NIL) THEN INC (size, Target.Address.size) END;
+    INC (size, (Text.Length (name) + 1) * Target.Char.size);
+    t.offset := Module.Allocate (Target.Address.size, Target.Address.align,
+                                 FALSE, name);
+    t.coffset := Module.Allocate (size, Target.Address.align, TRUE, name);
+    t.uid := M3FP.ToInt (M3FP.FromText (name));
+  END SetGlobals;
+
+(* Externally dispatched-to: *)
+PROCEDURE Declarer (t: T): BOOLEAN =
+  VAR
+    name: TEXT;
+    globals, consts: IR.Var;
+    arg_type: IR.TypeUID := 0;
+    size: INTEGER;
+    proc: IR.Proc;
+  BEGIN
+    Type.Compile (t.tipe);
+    Type.Compile (t.refTipe);
+    IF (t.tipe # NIL) THEN arg_type := Type.GlobalUID (t.tipe) END;
+
+    IF t.external OR t.imported THEN
+      (* don't bother to force the import *)
+    ELSE (* locally declared *)
+      SetGlobals (t);
+      name := Value.GlobalName (t);
+      globals := Module.GlobalData (is_const := FALSE);
+      consts  := Module.GlobalData (is_const := TRUE);
+      size := M3RT.ED_SIZE;
+      IF (t.refTipe # NIL) THEN
+        INC (size, Target.Address.pack);
+        proc := DeclareRaiseProc (t);
+      END;
+      IR.Declare_exception (t.name, arg_type, (t.refTipe#NIL), consts, t.coffset);
+      IR.Declare_global_field (t.name, t.offset, Target.Address.size, 0, FALSE);
+      IR.Declare_global_field (t.name, t.coffset, size, 0, TRUE);
+      IR.Init_var  (t.offset, consts, t.coffset, FALSE);
+      IR.Init_intt (t.coffset + M3RT.ED_uid, Target.Integer.size, t.uid, TRUE);
+      IR.Init_var  (t.coffset + M3RT.ED_name, consts, t.coffset + size, TRUE);
+      IR.Init_intt (t.coffset + M3RT.ED_implicit, Target.Integer.size,
+                                                       ORD (t.implicit), TRUE);
+      IF (t.refTipe # NIL) THEN
+        IR.Init_proc (t.coffset + M3RT.ED_SIZE, proc, TRUE);
+      END;
+      IR.Init_chars (t.coffset + size, name, TRUE);
+    END;
+    RETURN TRUE;
+  END Declarer;
+
+PROCEDURE DeclareRaiseProc (t: T): IR.Proc =
+  VAR r := NEW (Raiser, self := t);
+  BEGIN
+    r.name    := Value.GlobalName (t, dots := FALSE);
+    r.name    := r.name & "_RAISE";
+    r.cg_proc := IR.Declare_procedure (M3ID.Add (r.name), 3, IR.Type.Void,
+                      lev := 0, cc := Target.DefaultCall, exported := FALSE,
+                      parent := NIL);
+    r.arg     := IR.Declare_param (M3ID.NoID, Target.Address.size,
+                      Target.Address.align, IR.Type.Addr,
+                      IR.Declare_indirect (Type.GlobalUID (t.tipe)),
+                      in_memory := FALSE, up_level := FALSE, f := IR.Always);
+    r.module  := IR.Declare_param (M3ID.NoID, Target.Address.size,
+                      Target.Address.align, IR.Type.Addr,
+                      Type.GlobalUID (Addr.T), in_memory := FALSE,
+                      up_level := FALSE, f := IR.Always);
+    r.line    := IR.Declare_param (M3ID.NoID, Target.Integer.size,
+                      Target.Integer.align, Target.Integer.cg_type,
+                      Type.GlobalUID (Int.T), in_memory := FALSE,
+                      up_level := FALSE, f := IR.Always);
+    ProcBody.Schedule (r);
+    RETURN r.cg_proc;
+  END DeclareRaiseProc;
+
+(* Externally dispatched-to: *)
+PROCEDURE EmitDecl (<*UNUSED*> x: Raiser) =
+  BEGIN
+  END EmitDecl;
+
+(* Externally dispatched-to: *)
+PROCEDURE EmitBody (x: Raiser) =
+  VAR
+    t := x.self;
+    ptr: IR.Val;
+    align: INTEGER;
+    proc: Procedure.T;
+    info: Type.Info;
+  BEGIN
+    IR.Gen_location (t.origin);
+    IR.Begin_procedure (x.cg_proc);
+    EVAL Type.CheckInfo (t.tipe, info);
+    align := info.alignment;
+
+    (* ptr := NEW (REF t.type) *)
+    proc := RunTyme.LookUpProc (RunTyme.Hook.NewTracedRef);
+    Procedure.StartCall (proc);
+    Type.LoadInfo (t.refTipe, -1);
+    IR.Pop_param (IR.Type.Addr);
+    ptr := Procedure.EmitValueCall (proc);
+
+    (* ptr^ := arg^ *)
+    IR.Push (ptr);
+    IR.Boost_addr_alignment (align);
+    IR.Load_addr (x.arg, 0, align);
+    IR.Copy (info.size, overlap := FALSE);
+
+    (* RAISE (e, ptr) *)
+    proc := RunTyme.LookUpProc (RunTyme.Hook.RaiseEx);
+    Procedure.StartCall (proc);
+    IF Target.DefaultCall.args_left_to_right THEN
+      LoadSelf (t);
+      IR.Pop_param (IR.Type.Addr);
+      IR.Push (ptr);
+      IR.Pop_param (IR.Type.Addr);
+      IR.Load_addr (x.module, 0, Target.Address.align);
+      IR.Pop_param (IR.Type.Addr);
+      IR.Load_int (Target.Integer.cg_type, x.line);
+      IR.Pop_param (Target.Integer.cg_type);
+    ELSE
+      IR.Load_int (Target.Integer.cg_type, x.line);
+      IR.Pop_param (Target.Integer.cg_type);
+      IR.Load_addr (x.module, 0, Target.Address.align);
+      IR.Pop_param (IR.Type.Addr);
+      IR.Push (ptr);
+      IR.Pop_param (IR.Type.Addr);
+      LoadSelf (t);
+      IR.Pop_param (IR.Type.Addr);
+    END;
+    Procedure.EmitCall (proc);
+
+    IR.Free (ptr);
+    IR.End_procedure (x.cg_proc);
+  END EmitBody;
+
+(* EXPORTED: *)
+PROCEDURE AddFPSetTag (tt: Value.T;  VAR x: M3.FPInfo): CARDINAL =
+  (* called for RAISES sets, doesn't include the interface record offset *)
+  VAR t: T := Value.Base (tt);
+  BEGIN
+    M3Buf.PutChar (x.buf, '<');
+    ValueRep.FPStart (t, x, "EXCEPT ", 0, global := TRUE);
+    M3Buf.PutChar (x.buf, '>');
+    RETURN ORD (t.tipe # NIL);
+  END AddFPSetTag;
+
+(* Externally dispatched-to: *)
+PROCEDURE AddFPTag (t: T;  VAR x: M3.FPInfo): CARDINAL =
+  VAR offset := t.offset DIV Target.Address.align;
+  BEGIN
+    ValueRep.FPStart (t, x, "EXCEPT ", offset, global := TRUE);
+    RETURN ORD (t.tipe # NIL);
+  END AddFPTag;
+
+PROCEDURE FPType (t: T): Type.T =
+  BEGIN
+    RETURN t.tipe;
+  END FPType;
+
+BEGIN
+END Exceptionz.

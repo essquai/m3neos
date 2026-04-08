@@ -435,6 +435,7 @@ VAR BackendMode: M3BackendMode_t;
 VAR BackendModeInitialized := FALSE;
 
 PROCEDURE SetBuild_dir(build_dir: TEXT);
+PROCEDURE CleanupSourcePath(file: TEXT): TEXT;
 
 CONST WideChar16Max = 16_FFFF;
 CONST WideChar32Max = 16_10FFFF;

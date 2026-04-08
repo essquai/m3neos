@@ -620,7 +620,7 @@ PROCEDURE PrintVersion (exit: BOOLEAN) =
   VAR gitInfo := Version.GitInfo;
   BEGIN
     IF traceQuake THEN MxConfig.EnableQuakeTrace() END;
-    Msg.Out ("Modula-3 Sys-2 version ", Val("CM3_RELEASE"), Wr.EOL);
+    Msg.Out ("Modula-3 NEOs version ", Val("CM3_RELEASE"), Wr.EOL);
     gitInfo := TextUtils.Substitute(Version.GitInfo, "\n", "\n           ");
     gitInfo := TextUtils.SkipRight(gitInfo);
     Msg.Out ("  GitInfo: ", gitInfo, Wr.EOL);

@@ -1,0 +1,121 @@
+(* Copyright (C) 1992, Digital Equipment Corporation           *)
+(* All rights reserved.                                        *)
+(* See the file COPYRIGHT for a full description.              *)
+
+(* File: OrExpr.m3                                             *)
+(* Last modified on Fri Jul  8 09:48:43 PDT 1994 by kalsow     *)
+(*      modified on Thu Nov 29 03:32:03 1990 by muller         *)
+
+MODULE OrExpr;
+
+IMPORT IR, Expr, ExprRep, Type, Bool, EnumExpr, Target, TInt, Value;
+
+TYPE
+  P = ExprRep.Tab BRANDED "OrExpr.P" OBJECT
+        tmp: IR.Val;
+      OVERRIDES
+        typeOf       := ExprRep.NoType;
+        repTypeOf    := ExprRep.NoType;
+        check        := Check;
+        need_addr    := ExprRep.NotAddressable;
+        prep         := Prep;
+        compile      := Compile;
+        prepLV       := ExprRep.NotLValue;
+        compileLV    := ExprRep.NotLValueBool;
+        prepBR       := PrepBR;
+        compileBR    := ExprRep.NoBranch;
+        evaluate     := Fold;
+        isEqual      := ExprRep.EqCheckAB;
+        getBounds    := ExprRep.NoBounds;
+        isWritable   := ExprRep.IsNever;
+        isDesignator := ExprRep.IsNever;
+        isZeroes     := ExprRep.IsNever;
+        genFPLiteral := ExprRep.NoFPLiteral;
+        prepLiteral  := ExprRep.NoPrepLiteral;
+        genLiteral   := ExprRep.NoLiteral;
+        note_write   := ExprRep.NotWritable;
+        exprAlign    := ExprRep.ExprBoolAlign; 
+      END;
+
+PROCEDURE New (a, b: Expr.T): Expr.T =
+  VAR p: P;
+  BEGIN
+    p := NEW (P);
+    ExprRep.Init (p);
+    p.a       := a;
+    p.b       := b;
+    p.type    := Bool.T;
+    p.repType := Bool.T;
+    p.tmp     := NIL;
+    RETURN p;
+  END New;
+
+PROCEDURE Check (p: P;  VAR cs: Expr.CheckState) =
+  VAR ta, tb: Type.T;
+  BEGIN
+    Expr.TypeCheck (p.a, cs);
+    Expr.TypeCheck (p.b, cs);
+    ta := Type.Base (Expr.TypeOf (p.a));
+    tb := Type.Base (Expr.TypeOf (p.b));
+    IF (ta # Bool.T) OR (tb # Bool.T) THEN
+      p.type := Expr.BadOperands ("OR", ta, tb);
+    END;
+  END Check;
+
+PROCEDURE Prep (p: P) =
+  VAR true := IR.Next_label ();
+  BEGIN
+    Value.Load (Bool.True);
+    p.tmp := IR.Pop_temp ();
+    PrepBR (p, true, IR.No_label, IR.Maybe);
+    Value.Load (Bool.False);
+    IR.Store_temp (p.tmp);
+    IR.Set_label (true);
+  END Prep;
+
+PROCEDURE Compile (p: P; StaticOnly: BOOLEAN) =
+  BEGIN
+    <* ASSERT NOT StaticOnly *>
+    IR.Push (p.tmp);
+    IR.Free (p.tmp);
+    p.tmp := NIL;
+  END Compile;
+
+PROCEDURE PrepBR (p: P;  true, false: IR.Label;  freq: IR.Frequency) =
+  VAR skip: IR.Label;
+  BEGIN
+    IF (false = IR.No_label) THEN
+      Expr.PrepBranch (p.a, true, false, freq);
+      Expr.CompileBranch (p.a, true, false, freq);
+      Expr.PrepBranch (p.b, true, false, freq);
+      Expr.CompileBranch (p.b, true, false, freq);
+    ELSE (* true = NoLabel => fall through *)
+      skip := IR.Next_label ();
+      Expr.PrepBranch (p.a, skip, IR.No_label, IR.Always - freq);
+      Expr.CompileBranch (p.a, skip, IR.No_label, IR.Always - freq);
+      Expr.PrepBranch (p.b, IR.No_label, false, freq);
+      Expr.CompileBranch (p.b, IR.No_label, false, freq);
+      IR.Set_label (skip);
+    END;
+  END PrepBR;
+
+PROCEDURE Fold (p: P): Expr.T =
+  VAR e1, e2: Expr.T; i1, i2: Target.Int; t1, t2: Type.T;  z1, z2: INTEGER;
+  BEGIN
+    e1 := Expr.ConstValue (p.a);
+    e2 := Expr.ConstValue (p.b);
+    IF (e1 = NIL) OR (e2 = NIL)
+      OR (NOT EnumExpr.Split (e1, i1, t1))
+      OR (NOT EnumExpr.Split (e2, i2, t2))
+      OR (Type.Base (t1) # Bool.T)
+      OR (Type.Base (t2) # Bool.T)
+      OR (NOT TInt.ToInt (i1, z1))
+      OR (NOT TInt.ToInt (i2, z2)) THEN
+      RETURN NIL;
+    ELSE
+      RETURN Bool.Map[(ORD (TRUE) = z1) OR (ORD (TRUE) = z2)];
+    END;
+  END Fold;
+
+BEGIN
+END OrExpr.
