@@ -1,0 +1,12 @@
+import ("m3core")
+import ("libm3")
+
+Module ("WASM")
+c_source  ("RefWasm")
+
+LIB_DIR = "/usr/lib"
+LIB_DIR1 = "/usr/lib/x86_64-linux-gnu"
+import_lib("binaryen", LIB_DIR)
+import_lib("stdc++", LIB_DIR1)
+
+Library ("WASM128")

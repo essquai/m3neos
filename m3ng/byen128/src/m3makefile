@@ -1,0 +1,11 @@
+import("libm3")
+import("m3ir")
+%import("m3back")
+import("m3make")
+import("byen128lib")
+
+module("M3NG_WASM")
+
+implementation("Main")
+
+Program("m3wasm")
