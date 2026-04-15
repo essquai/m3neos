@@ -7,6 +7,33 @@
 
 INTERFACE BuiltinTypes;
 
+IMPORT IR, Type;
+
+TYPE
+  Kind   = {
+    Err, Int, LInt, Card, LCard, Bool,
+    Reel, LReel, EReel,
+    Charr, WCharr, Textt,
+    Null, Addr, Reff, ObjectRef, ObjectAdr,
+    Mutex
+  };
+
+CONST
+  KindNames = ARRAY Kind OF TEXT {
+    "_ERROR", "INTEGER", "LONGINT", "CARDINAL", "LONGCARD", "BOOLEAN",
+    "REAL", "LONGREAL", "EXTENDED",
+    "CHAR", "WIDECHAR", "TEXT",
+    "NULL", "ADDRESS", "REFANY", "ROOT", "_UNTRACED_ROOT",
+    "MUTEX"
+  };
+
+VAR
+  KindInfo : ARRAY Kind OF REF Type.Info;
+  KindType : ARRAY Kind OF     IR.Type;
+  KindUID  : ARRAY Kind OF     IR.TypeUID;
+
+PROCEDURE GetKind(ir_typeuid : IR.TypeUID; VAR kind : Kind) : BOOLEAN;
+
 PROCEDURE Initialize ();
 
 END BuiltinTypes.

@@ -1,5 +1,7 @@
 import("libm3")
 import("m3ir")
+import("m3fe")
+import("m3link")
 %import("m3back")
 import("m3make")
 import("byen128lib")

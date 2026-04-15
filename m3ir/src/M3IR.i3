@@ -118,6 +118,7 @@ CONST NO_UID : TypeUID = -1;
 *)  
 
 PROCEDURE FormatUID(tUID: TypeUID) : TEXT;
+PROCEDURE BuiltinType(tUID: TypeUID; VAR ir_type : Type) : BOOLEAN;
 
 TYPE
   Label = INTEGER;

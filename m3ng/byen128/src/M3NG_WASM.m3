@@ -7,29 +7,21 @@ IMPORT WASM;
 (* m3core imports *)
 IMPORT Ctypes;
 IMPORT FileWr;
+IMPORT FS;
 IMPORT Fmt;
 IMPORT IntRefTbl;
 IMPORT IO; (* debug this module *)
 IMPORT M3toC;
-IMPORT Pathname;
-IMPORT Process;
-IMPORT Rd;
 IMPORT RefSeq;
 IMPORT Text;
-IMPORT TextExtras;
 IMPORT TextRefTbl;
-IMPORT TextSeq;
-IMPORT Word;
 IMPORT Wr;
 
-(* m3middle imports *)
-IMPORT M3Buf;
+(* m3ir imports *)
 IMPORT M3IR_Asm;
 IMPORT M3ID;
 IMPORT Target;
-IMPORT TargetMap;
-IMPORT TFloat;
-IMPORT TInt, TWord;
+IMPORT TInt;
 IMPORT M3IR;
 FROM M3IR IMPORT Name, ByteOffset, TypeUID, CallingConvention;
 FROM M3IR IMPORT BitSize, ByteSize, Alignment, Frequency;
@@ -37,6 +29,11 @@ FROM M3IR IMPORT Var, Proc, Label, Sign, BitOffset;
 FROM M3IR IMPORT Type, ZType, AType, RType, IType, MType;
 FROM M3IR IMPORT CompareOp, ConvertOp, AtomicOp, RuntimeError;
 FROM M3IR IMPORT MemoryOrder;
+
+(* m3fe imports *)
+IMPORT M3Front;
+IMPORT BuiltinTypes AS M3FEBuiltin;
+
 
 REVEAL
   T = Public BRANDED "M3NG_WASM128.T" OBJECT
@@ -69,8 +66,6 @@ REVEAL
     next_proc     := 1;
     next_scope    := 1;
     next_mod      := 1;
-    next_struct   := 1;
-
     
     blockLevel    := 0;
     widecharSize  := 16; (* May change to 32. *)
@@ -87,7 +82,7 @@ REVEAL
     debugLexStack : RefSeq.T := NIL;
 
   METHODS
-    Trace(a, b, c, d, e, f: TEXT := NIL) := Trace;
+    Trace(a, b, c, d, e, f: TEXT := NIL; eol := TRUE) := Trace;
     Typedef(t : TypeUID) : WaDefn := Typedef;
     Typename(t : TypeUID; name : Name) := Typename;
 
@@ -268,9 +263,22 @@ VAR
   WPACK_int8: WASM.Packed;
   WPACK_int16: WASM.Packed;
 
+  WDEF_Min8   : INTEGER;
+  WDEF_Max8   : INTEGER;
+  WDEF_Max8U  : INTEGER;
+  WDEF_Min16  : INTEGER;
+  WDEF_Max16  : INTEGER;
+  WDEF_Max16U : INTEGER;
+  WDEF_Min32  : INTEGER;
+  WDEF_Max32  : INTEGER;
+  WDEF_Max32U : INTEGER;
+  WDEF_Min64  : INTEGER;
+  WDEF_Max64  : INTEGER;
+  WDEF_Max64U : INTEGER;
 
 (*--------------------------------------------------------- Parse Objects ---*)
 TYPE
+  Predeclared = M3FEBuiltin.Kind;
 
   VarType = {Local,Global,Param,Temp};
 
@@ -383,35 +391,56 @@ TYPE
 
  WaDefn = OBJECT
     (* ^ Base level definition of a type *)
-    typeid: TypeUID;
-    name: Name := M3ID.NoID;
+    typeid : TypeUID;
+    name : Name := M3ID.NoID;
     size : BitSize := 0;
-    offset: BitOffset := 0;
-    type: WASM.Type := NOTYPE;
-    pack: WASM.Packed := NOTYPE;
-    numFields : INTEGER := 0;
-    numMethods : INTEGER := 0;
+    offset : BitOffset := 0;
+    type : WASM.Type := NOTYPE;
+    pack : WASM.Packed := NOTYPE;
+    numParams : INTEGER := 0;
+    integral : BOOLEAN := TRUE;
   METHODS
-    init(size : BitSize := 0; offset : BitOffset := 0; wtype : WASM.Type := NOTYPE; nFields : INTEGER := 0; nMethods : INTEGER := 0; pack : WASM.Packed := NOTYPE) : WaDefn := Typeinit;
+    init(size : BitSize := 0; offset : BitOffset := 0; wtype : WASM.Type := NOTYPE; numParams : INTEGER := 0; pack : WASM.Packed := NOTYPE) : WaDefn := Typeinit;
   END;
 
   WaOrdinal = WaDefn OBJECT
     (* ^enumerations, subranges, ints *)
-    first : INTEGER;
-    last : INTEGER;
-    number : INTEGER;
+    first  : INTEGER  := 0;
+    last   : INTEGER  := 0;
+    number : CARDINAL := 0;
     elements : REF ARRAY OF WaDefn := NIL; (* enum names *)
   END;
 
-  WaArray = WaDefn OBJECT
-    (* ^of elements *)
-    fixed : WaOrdinal := NIL;
-    value : WaDefn := NIL;
+  WaFloat = WaDefn OBJECT
+    (* ^floating point *)
+    ext : BOOLEAN := FALSE; (* extended precision *)
   END;
 
-  WaField = WaDefn OBJECT
-    (* ^Consitituent of a structure - can itself be a structure *)
-    struct : WaStruct := NIL;
+  WaRef = WaDefn OBJECT
+    (* ^References PLUS mutexes *)
+    any : TypeUID := NOTYPE;
+  END;
+
+  WaArray = WaDefn OBJECT
+    (* common properties *)
+    element  : WaDefn    := NIL;
+    ofArray  : WaArray   := NIL; (* array of array *)
+
+    (* array is fixed iff # NIL *)
+    fixed : WaOrdinal := NIL;
+
+    (* array is open iff > 0 *)
+    open  : CARDINAL   := 0
+  END;
+
+  WaParam = WaDefn OBJECT
+    (* ^Multi-purpose: struct/object fields, object methods, procedure parameters
+        As a convenience, parameter referent is NARROWed here *)
+    ord : WaOrdinal := NIL;
+    flt : WaFloat   := NIL;
+    ref : WaRef     := NIL;
+    arr : WaArray   := NIL;
+    str : WaStruct  := NIL;
   END;
 
   WaStruct = WaDefn OBJECT
@@ -421,9 +450,10 @@ TYPE
        Let's call them Struct.
        Both records and objects are subject to WASM Garbage Collection,
        which makes them struct references declared with a type  *)
-    tag: INTEGER;
-    fields: REF ARRAY OF WaField := NIL;
-    methods: REF ARRAY OF WaField := NIL;
+    params:  REF ARRAY OF WaParam := NIL;
+    numMethods : INTEGER := 0;
+    methods: REF ARRAY OF WaParam := NIL;
+
     super: WaStruct := NIL;
   END;
 
@@ -433,8 +463,6 @@ TYPE
     funcStack : RefSeq.T := NIL;
     (* ^imported functions *)
   END;
-
-
 
 (*-------------------------------------------------------- CG Procedures  ---*)
 
@@ -506,7 +534,7 @@ PROCEDURE declare_local
     RETURN v;
   END declare_local;
 
-PROCEDURE declare_param (self: T;  n: Name;  s: ByteSize;  a: Alignment; t: Type;  m3t: TypeUID;  in_memory, up_level: BOOLEAN; f: Frequency; <*UNUSED*>typeName : Name): Var =
+PROCEDURE declare_param (self: T;  n: Name;  s: ByteSize;  a: Alignment; t: Type;  m3t: TypeUID;  in_memory, up_level: BOOLEAN; f: Frequency; typeName : Name): Var =
   (* A formal parameter of a procedure, not of a procedure type, (which
      is given by declare_formal). *)
   VAR
@@ -540,11 +568,11 @@ PROCEDURE declare_param (self: T;  n: Name;  s: ByteSize;  a: Alignment; t: Type
     END;
 
     IF n # M3ID.NoID THEN
-      self.Trace("declare_param ", M3ID.ToText(n));
+      self.Trace("declare_param ", M3ID.ToText(n), " typename=", M3ID.ToText(typeName), eol := FALSE);
     ELSE
-      self.Trace("declare_param NoID");
+      self.Trace("declare_param NoID", eol := FALSE);
     END;
-    self.Trace("\ttype=",Fmt.Int(ORD(t))," index=", Fmt.Int(v.waIndex), " wtype=", Fmt.Int(v.waType));
+    self.Trace(" type=",Target.TypeNames[t]," index=", Fmt.Int(v.waIndex), " wtype=", Fmt.Int(v.waType));
     RETURN v;
   END declare_param;
 
@@ -669,16 +697,54 @@ PROCEDURE declare_typename(self: T; typeid: TypeUID; name: Name) =
     END;
   END declare_typename;
 
-PROCEDURE declare_array(self: T; typeid, index_typeid, element_typeid: TypeUID; bit_size: BitSize; element_typename: Name) =
+PROCEDURE declare_array(self: T; typeid, index_typeid, element_typeid: TypeUID; bit_size: BitSize; <*UNUSED*>element_typename: Name) =
+  VAR
+    arr := NEW(WaArray, typeid := typeid, type := WTYPE_arrayref, size := bit_size);
+    elt : WaDefn;
+    ofA : WaArray := NIL;
+    idx : WaDefn;
+    fix : WaOrdinal;
   BEGIN
-    self.Trace("declare_array ", M3IR.FormatUID(typeid), " element=", M3ID.ToText(element_typename), " index_type=", M3IR.FormatUID(index_typeid));
-    self.Trace("    type=", M3IR.FormatUID(typeid), " element=", M3IR.FormatUID(element_typeid), " size=", Fmt.Int(bit_size))
+    elt := Typedef(self, element_typeid);
+    idx := Typedef(self, index_typeid);
+    fix := NARROW(idx, WaOrdinal);
+    IF ISTYPE(elt, WaArray) THEN
+      ofA := NARROW(elt, WaArray);
+    END;
+    <* ASSERT elt # NIL AND fix # NIL *>
+
+    (* Set the properties of the fixed array *)
+    arr.element   := elt;
+    arr.ofArray   := ofA;
+    arr.fixed     := fix;
+    arr.numParams := fix.number;
+    Typeadd(self, arr);
+    self.Trace("declare_array type=", M3IR.FormatUID(typeid), " idx=", Typelabel(fix), " elt=", Typelabel(elt), eol := FALSE);
+    self.Trace(" numParams=", Fmt.Int(arr.numParams), " ofArray=", Fmt.Bool(ofA # NIL));
   END declare_array;
 
-PROCEDURE declare_open_array(self: T; typeid, element_typeid: TypeUID; bit_size: BitSize; element_typename: Name) =
+
+PROCEDURE declare_open_array(self: T; typeid, element_typeid: TypeUID; bit_size: BitSize; <*UNUSED*>element_typename: Name) =
+  VAR
+    arr := NEW(WaArray, typeid := typeid, type := WTYPE_arrayref, size := bit_size);
+    elt : WaDefn;
+    dim : INTEGER;
+    ofA : WaArray := NIL;
   BEGIN
-    self.Trace("declare_open_array ", M3IR.FormatUID(typeid), " element=", M3ID.ToText(element_typename));
-    self.Trace("    type=", M3IR.FormatUID(typeid), " element=", M3IR.FormatUID(element_typeid), " size=", Fmt.Int(bit_size))
+    elt := Typedef(self, element_typeid);
+    dim := (bit_size - 64) DIV 64;
+    IF ISTYPE(elt, WaArray) THEN
+      ofA := NARROW(elt, WaArray);
+    END;
+    <* ASSERT elt # NIL AND dim > 0 *>
+
+    (* Set the properties of the open array *)
+    arr.element   := elt;
+    arr.ofArray   := ofA;
+    arr.open      := dim;
+    Typeadd(self, arr);
+    self.Trace("declare_open_array type=", M3IR.FormatUID(typeid), " elt=", Typelabel(elt), eol := FALSE);
+    self.Trace(" open=", Fmt.Int(arr.open), " ofArray=", Fmt.Bool(ofA # NIL));
   END declare_open_array;
 
 PROCEDURE declare_enum(self: T; typeid: TypeUID; n_elts: INTEGER; bit_size: BitSize) =
@@ -690,7 +756,7 @@ PROCEDURE declare_enum(self: T; typeid: TypeUID; n_elts: INTEGER; bit_size: BitS
       self.curEnum      := enum;
       self.next_element := 0;
       enum.elements     := NEW(REF ARRAY OF WaDefn, n_elts);
-      enum.numFields    := n_elts;
+      enum.numParams    := n_elts;
       enum.last         := n_elts - 1;
       IF enum.size = 8 THEN  enum.pack := WPACK_int8;
                        ELSIF enum.size = 16 THEN enum.pack := WPACK_int16; END;
@@ -704,11 +770,11 @@ PROCEDURE declare_enum_elt(self: T; name: Name) =
   VAR enum := self.curEnum;
   BEGIN
     self.Trace("declare_enum_elt ", M3ID.ToText(name));
-    <* ASSERT enum # NIL AND self.next_element < enum.numFields *>
+    <* ASSERT enum # NIL AND self.next_element < enum.numParams *>
 
     enum.elements[self.next_element] := NEW(WaDefn, typeid := enum.typeid, name := name, pack := enum.pack);
     INC(self.next_element);
-    IF self.next_element >= enum.numFields THEN
+    IF self.next_element >= enum.numParams THEN
       (* enumeration complete *)
       Typeadd(self, enum);
       self.curEnum := NIL;
@@ -719,45 +785,40 @@ PROCEDURE declare_enum_elt(self: T; name: Name) =
 <*NOWARN*>PROCEDURE declare_packed(self: T; typeid: TypeUID; bit_size: BitSize; base: TypeUID; base_typename: Name) = BEGIN END declare_packed;
 
 PROCEDURE declare_record(self: T; typeid: TypeUID; bit_size: BitSize; n_fields: INTEGER) = 
-  VAR s := NewStruct (self:=self, typeid := typeid, bit_size := bit_size, numFields := n_fields, numMethods := 0);
+  VAR s := NewStruct (self:=self, typeid := typeid, bit_size := bit_size, numParams := n_fields, numMethods := 0);
   BEGIN
-    self.Trace("declare_record ", M3IR.FormatUID(typeid));
+    self.Trace("declare_record ", M3IR.FormatUID(typeid), " n_fields=", Fmt.Int(n_fields));
     self.curStruct   := s;
     self.next_field  := 0;
     self.next_method := 0;
   END declare_record;
 
-PROCEDURE declare_field(self: T; name: Name; bit_offset: BitOffset; bit_size: BitSize; typeid: TypeUID; typename: Name) =
+PROCEDURE declare_field(self: T; name: Name; bit_offset: BitOffset; bit_size: BitSize; typeid: TypeUID; <*UNUSED*> typename: Name) =
   VAR
-    fld := NEW(WaField, typeid := typeid, name := name, size := bit_size, offset := bit_offset);
+    fld := NEW(WaParam, typeid := typeid, name := name, size := bit_size, offset := bit_offset);
     def := Typedef(self, typeid);
     str := self.curStruct;
-    pac := WPACK_not;
   BEGIN
     <* ASSERT str # NIL *>
-    <* ASSERT self.next_field < str.numFields *>
-    self.Trace("declare_field ", M3ID.ToText(name), " no=", Fmt.Int(self.next_field));
-    IF def # NIL AND def.type = WTYPE_structref THEN
-      fld.struct    := NARROW(def,WaStruct);
-      fld.type      := WTYPE_structref;
-      fld.numFields := def.numFields;
+    <* ASSERT self.next_field < str.numParams *>
+    <* ASSERT def # NIL *>
+    self.Trace("  declare_field ", M3ID.ToText(name), " num=", Fmt.Int(self.next_field), " type=", Typelabel(def));
+    TYPECASE def OF
+    WaOrdinal (ord)  => fld.ord := ord;
+    | WaFloat (flt)  => fld.flt := flt;
+    | WaRef (ref)    => fld.ref := ref;
+    | WaArray (arr)  => fld.arr := arr;
+    | WaStruct (str) => fld.str := str;
     ELSE
-      fld.type := WTYPE_i64;
-      CASE fld.size OF 
-      |  8 => pac := WPACK_int8;
-              fld.type := WTYPE_i32;
-      | 16 => pac := WPACK_int16;
-              fld.type := WTYPE_i32;
-      | 32 => fld.type := WTYPE_i32;
-      ELSE
-              pac := WPACK_not;
-      END;
+    <* ASSERT FALSE *>
     END;
-    fld.pack := pac;
-    str.fields[self.next_field] := fld;
+    (* duplicate these from the referenced field type definition to param *)
+    fld.type := def.type;
+    fld.pack := def.pack;
+    str.params[self.next_field] := fld;
 
     INC(self.next_field);
-    IF self.next_field >= str.numFields
+    IF self.next_field >= str.numParams
        AND self.next_method >= str.numMethods THEN
       (* structure complete *)
       PushRev(self.defStack, str);
@@ -767,7 +828,7 @@ PROCEDURE declare_field(self: T; name: Name; bit_offset: BitOffset; bit_size: Bi
 
 <*NOWARN*>PROCEDURE declare_set(self: T; t, domain: TypeUID; bit_size: BitSize; domain_typename: Name) = BEGIN END declare_set;
 
-PROCEDURE declare_subrange(self: T; typeid, domain_typeid: TypeUID; READONLY min, max: Target.Int; bit_size: BitSize; domain_typename: Name) =
+PROCEDURE declare_subrange(self: T; typeid, domain_typeid: TypeUID; READONLY min, max: Target.Int; bit_size: BitSize; <*UNUSED*> domain_typename: Name) =
   VAR range := NEW(WaOrdinal, typeid := typeid, size := bit_size); converted : BOOLEAN;
   BEGIN
     converted := TInt.ToInt(min, range.first);
@@ -787,18 +848,30 @@ PROCEDURE declare_subrange(self: T; typeid, domain_typeid: TypeUID; READONLY min
     ELSE
       <* ASSERT FALSE *>
     END;
-    self.Trace("declare_subrange ", M3IR.FormatUID(typeid), " first=", Fmt.Int(range.first), " number=", Fmt.Int(range.number));
+    self.Trace("declare_subrange ", M3IR.FormatUID(typeid), " number=", Fmt.Int(range.number), eol := FALSE);
+    self.Trace(" first=", Fmt.Int(range.first), " last=", Fmt.Int(range.last), " bits=", Fmt.Int(range.size), eol :=FALSE);
+    self.Trace(" domain=", M3IR.FormatUID(domain_typeid));
     Typeadd(self, range);
   END declare_subrange;
 
-<*NOWARN*>PROCEDURE declare_pointer(self: T; typeid, target_typeid: TypeUID; brand: TEXT; traced: BOOLEAN; target_typename: Name) = BEGIN END declare_pointer;
+PROCEDURE declare_pointer(self: T; typeid, target_typeid: TypeUID; <*UNUSED*> brand: TEXT; <*UNUSED*>traced: BOOLEAN; <*UNUSED*>target_typename: Name) =
+  VAR
+    ref := NEW(WaRef, typeid := typeid, type := WTYPE_anyref, size := 64, integral := FALSE, any := target_typeid);
+    def := Typedef(self, target_typeid);
+  BEGIN
+    <* ASSERT def # NIL *>
+    self.Trace("declare_pointer from=", M3IR.FormatUID(typeid), " to=", M3IR.FormatUID(target_typeid), " type=", Typelabel(def));
+    Typeadd(self, ref);
+  END declare_pointer;
+
+
 <*NOWARN*>PROCEDURE declare_indirect(self: T; typeid, target_typeid: TypeUID; target_typename: Name) = BEGIN END declare_indirect;
 <*NOWARN*>PROCEDURE declare_proctype(self: T; typeid: TypeUID; n_formals: INTEGER; result: TypeUID; n_raises: INTEGER; callingConvention: CallingConvention; result_typename: Name) = BEGIN END declare_proctype;
 <*NOWARN*>PROCEDURE declare_formal(self: T; name: Name; typeid: TypeUID; typename: Name) = BEGIN END declare_formal;
 <*NOWARN*>PROCEDURE declare_raises(self: T; name: Name) = BEGIN END declare_raises;
 
-PROCEDURE declare_object(self: T; typeid, super_typeid: TypeUID; brand: TEXT; traced: BOOLEAN; n_fields, n_methods: INTEGER; field_size: BitSize; super_typename: Name) =
-  VAR s := NewStruct (self:=self, typeid := typeid, bit_size := field_size, numFields := n_fields, numMethods := n_methods);
+PROCEDURE declare_object(self: T; typeid : TypeUID; <*UNUSED*> super_typeid: TypeUID; <*UNUSED*>brand: TEXT; <*UNUSED*>traced: BOOLEAN; n_fields, n_methods: INTEGER; field_size: BitSize; <*UNUSED*>super_typename: Name) =
+  VAR s := NewStruct (self:=self, typeid := typeid, bit_size := field_size, numParams := n_fields, numMethods := n_methods);
   BEGIN
     self.Trace("declare_object ", Fmt.Int(typeid));
     self.curStruct   := s;
@@ -808,16 +881,16 @@ PROCEDURE declare_object(self: T; typeid, super_typeid: TypeUID; brand: TEXT; tr
 
 PROCEDURE declare_method(self: T; name: Name; signature: TypeUID) =
   VAR
-    fld := NEW(WaField, typeid := signature, type := WTYPE_funcref, name := name, pack := WPACK_not);
+    fld := NEW(WaParam, typeid := signature, type := WTYPE_funcref, name := name, pack := WPACK_not);
     str := self.curStruct;
   BEGIN
     <* ASSERT str # NIL *>
     <* ASSERT self.next_method < str.numMethods *>
-    self.Trace("declare_method ", M3ID.ToText(name), " no=", Fmt.Int(self.next_method));
+    self.Trace("declare_method ", M3ID.ToText(name), " num=", Fmt.Int(self.next_method));
     str.methods[self.next_method] := fld;
 
     INC(self.next_method);
-    IF self.next_field >= str.numFields
+    IF self.next_field >= str.numParams
        AND self.next_method >= str.numMethods THEN
       (* structure complete *)
       PushRev(self.defStack, str);
@@ -1130,9 +1203,14 @@ PROCEDURE module_write(t: T; binFileName, textFileName: TEXT) : INTEGER =
   END module_write;
 
 PROCEDURE New(WasmDebug : BOOLEAN; GenDebug: BOOLEAN) : T =
-  VAR t := NEW(T, tracing := WasmDebug, genDebug := GenDebug); wrld : BOOLEAN;
+  VAR
+    t     := NEW(T, tracing := WasmDebug, genDebug := GenDebug);
+    def   : WaDefn;
+    ord   : WaOrdinal;
+    flt   : WaFloat;
+    ref   : WaRef;
+    first : INTEGER;
   BEGIN
-    wrld := WASM.ModuleGetWorld();
     WASM.ModuleSetWorld(TRUE);
     t.moduleRef := WASM.ModuleCreate();
     WASM.ModuleSetFeatures(t.moduleRef, WASM.FeatureAll());
@@ -1150,7 +1228,55 @@ PROCEDURE New(WasmDebug : BOOLEAN; GenDebug: BOOLEAN) : T =
     t.defStack      := NEW(RefSeq.T).init();
     t.defTable      := NEW(IntRefTbl.Default).init(sizeHint := 20);
 
-    t.Trace("WASM.New world=", Fmt.Bool(wrld));
+    (* Construct the pre-declared types from the front end *)
+    FOR k := FIRST(M3FEBuiltin.Kind) TO LAST (M3FEBuiltin.Kind) DO
+      (* the below are attributes of WASM types, not native compiler *)
+      first := 0;
+      CASE k OF 
+      | Predeclared.Err =>
+                def := NEW(WaDefn);
+      | Predeclared.LInt, Predeclared.LCard =>
+                IF k = Predeclared.LInt THEN first := WDEF_Min64; END;
+                ord := NEW(WaOrdinal, type := WTYPE_i64, size := 64, first := first, last := WDEF_Max64, number := WDEF_Max64U);
+                def := ord;
+      | Predeclared.Int, Predeclared.Card =>
+                IF k = Predeclared.Int THEN first := WDEF_Min32; END;
+                ord := NEW(WaOrdinal, type := WTYPE_i32, size := 32, first := first, last := WDEF_Max32, number := WDEF_Max32U+1);
+                def := ord;
+      | Predeclared.Bool =>
+                ord := NEW(WaOrdinal, type := WTYPE_i32, size := 8, first :=0, last := 1, number := 2, pack := WPACK_int8);
+                def := ord;
+      | Predeclared.Reel, Predeclared.LReel, Predeclared.EReel =>
+                IF k = Predeclared.Reel THEN
+                  flt := NEW(WaFloat, type := WTYPE_f32, size := 32);
+                ELSE
+                  flt := NEW(WaFloat, type := WTYPE_f64, size := 64, ext := TRUE);
+                END;
+                def := flt;
+      | Predeclared.Charr =>
+                ord := NEW(WaOrdinal, type := WTYPE_i32, size := 8, first := 0, last := WDEF_Max8U, number := WDEF_Max8U+1, pack := WPACK_int8);
+                def := ord;
+      | Predeclared.WCharr =>
+                ord := NEW(WaOrdinal, type := WTYPE_i32, size := 16, first := 0, last := WDEF_Max16U, number := WDEF_Max16U+1, pack := WPACK_int16);
+                def := ord;
+      | Predeclared.Addr, Predeclared.ObjectAdr,
+        Predeclared.Reff, Predeclared.ObjectRef =>
+                ref := NEW(WaRef, type := WTYPE_anyref, size := 64, integral := FALSE);
+                def := ref;
+      | Predeclared.Mutex =>
+                ref := NEW(WaRef, type := WTYPE_i31ref, size := 32, any := M3FEBuiltin.KindUID[Predeclared.Int]);
+                def := ref;
+      | Predeclared.Textt =>
+                ref := NEW(WaRef, type := WTYPE_stringref, size := 64, integral := FALSE);
+                def := ref;
+      | Predeclared.Null =>
+                ref := NEW(WaRef, type := WTYPE_nullref, size := 64, integral := FALSE);
+                def := ref;
+      END;
+      def.typeid := M3FEBuiltin.KindUID[k];
+      Typeadd(t, def);
+      Typename(t, def.typeid, M3ID.Add(M3FEBuiltin.KindNames[k]))
+    END;
     RETURN t;
   END New;
 
@@ -1295,8 +1421,8 @@ PROCEDURE ModStructs(self : T) =
       any := Get(self.defStack, i);
       IF ISTYPE(any, WaStruct) THEN
         str := NARROW(any,WaStruct);
-        IF str.numFields > fldMax THEN
-          fldMax := str.numFields;
+        IF str.numParams > fldMax THEN
+          fldMax := str.numParams;
         END;
       END;
     END;
@@ -1318,9 +1444,9 @@ PROCEDURE ModStructs(self : T) =
         str     := NARROW(any,WaStruct);
         strName := Typelabel(str);
         self.Trace("  Struct ", strName);
-        numElem := str.numFields;
+        numElem := str.numParams;
         FOR f := 0 TO numElem-1 DO
-          fld     := str.fields[f];
+          fld     := str.params[f];
           fldName := Typelabel(fld);
           fldStr  := Cstar(fldName);
           fldAttr := " size=" & Fmt.Int(fld.size) & " offset="
@@ -1355,9 +1481,9 @@ PROCEDURE ModStructs(self : T) =
           strName := Typelabel(str);
           strStr  := Cstar(strName);
           WASM.ModuleSetTypeName(self.moduleRef, heapType[i], strStr);
-          numElem := str.numFields;
+          numElem := str.numParams;
           FOR f := 0 TO numElem-1 DO
-            fld     := str.fields[f];
+            fld     := str.params[f];
             fldName := Typelabel(fld);
             fldStr  := Cstar(fldName);
             WASM.ModuleSetFieldName(self.moduleRef, heapType[i], f, fldStr);
@@ -1470,6 +1596,7 @@ PROCEDURE SetParms(self : T; proc : WaProc) =
   END SetParms;
 
 (*---------------------------------------------------------- Type Parsing ---*)
+
 PROCEDURE WasmType(t : Type) : WASM.Type =
   BEGIN
     CASE t OF
@@ -1486,27 +1613,27 @@ PROCEDURE WasmType(t : Type) : WASM.Type =
     END;
   END WasmType;
 
-PROCEDURE Typeinit(self: WaDefn; size : BitSize := 0; offset : BitOffset := 0; wtype : WASM.Type := NOTYPE; nFields : INTEGER := 0; nMethods : INTEGER := 0; pack : WASM.Packed := NOTYPE) : WaDefn =
+PROCEDURE Typeinit(self: WaDefn; size : BitSize := 0; offset : BitOffset := 0; wtype : WASM.Type := NOTYPE; numParams : INTEGER := 0; pack : WASM.Packed := NOTYPE) : WaDefn =
   BEGIN
     self.size       := size;
     self.offset     := offset;
     self.type       := wtype;
-    self.numFields  := nFields;
-    self.numMethods := nMethods;
+    self.numParams  := numParams;
+    self.pack       := pack;
     RETURN self;
   END Typeinit;
 
-PROCEDURE NewStruct(self: T; typeid : TypeUID; bit_size: BitSize; numFields, numMethods : INTEGER): WaStruct =
+PROCEDURE NewStruct(self: T; typeid : TypeUID; bit_size: BitSize; numParams, numMethods : INTEGER): WaStruct =
   VAR
-    s := NEW (WaStruct, tag := self.next_struct, typeid:= typeid);
+    s := NEW (WaStruct, typeid:= typeid, integral := FALSE);
   BEGIN
-    INC (self.next_struct);
-    EVAL s.init(size := bit_size, offset := 0, wtype := WTYPE_structref, nFields := numFields, nMethods := numMethods, pack := WPACK_not);
-    IF numFields > 0 THEN
-      s.fields := NEW(REF ARRAY OF WaField, numFields);
+    EVAL s.init(size := bit_size, offset := 0, wtype := WTYPE_structref, numParams := numParams, pack := WPACK_not);
+    IF numParams > 0 THEN
+      s.params := NEW(REF ARRAY OF WaParam, numParams);
     END;
     IF numMethods > 0 THEN
-      s.methods := NEW(REF ARRAY OF WaField, numMethods);
+      s.numMethods := numMethods;
+      s.methods := NEW(REF ARRAY OF WaParam, numMethods);
     END;
     Typeadd(self, s);
     RETURN s;
@@ -1518,7 +1645,7 @@ PROCEDURE Typelabel(def : WaDefn) : TEXT =
     IF def.name # M3ID.NoID THEN
       lbl := M3ID.ToText(def.name);
     ELSE
-      lbl := "TYPE_" & M3IR.FormatUID(def.typeid);
+      lbl := "T_" & M3IR.FormatUID(def.typeid);
     END;
     RETURN lbl;
   END Typelabel;
@@ -1567,7 +1694,7 @@ PROCEDURE Get(stack : RefSeq.T; n: CARDINAL := 0) : REFANY =
 
 (*--------------------------------------------------------- Miscellaneous ---*)
 
-PROCEDURE Trace(self : T; a, b, c, d, e, f: TEXT := NIL) =
+PROCEDURE Trace(self : T; a, b, c, d, e, f: TEXT := NIL; eol := TRUE) =
   BEGIN
     IF NOT self.tracing THEN RETURN; END;
     IF (a # NIL) THEN IO.Put(a) END;
@@ -1576,7 +1703,7 @@ PROCEDURE Trace(self : T; a, b, c, d, e, f: TEXT := NIL) =
     IF (d # NIL) THEN IO.Put(d) END;
     IF (e # NIL) THEN IO.Put(e) END;
     IF (f # NIL) THEN IO.Put(f) END;
-    IO.Put(Wr.EOL);
+    IF eol THEN IO.Put(Wr.EOL); END;
   END Trace;
 
 (* avoid the m3toc stuff everywhere *)
@@ -1585,6 +1712,38 @@ PROCEDURE Cstar(t : TEXT) : Ctypes.char_star =
     RETURN M3toC.CopyTtoS(t);
   END Cstar;
 
+TYPE
+  Env = M3Front.Environment OBJECT
+  OVERRIDES
+    note_ast           := Pass0_NoteAST;
+  END;
+
+PROCEDURE Pass0_NoteAST (<*UNUSED*>env: Env;  <*UNUSED*>intf: M3ID.T;  <*UNUSED*>ast: REFANY) =
+  BEGIN
+  END Pass0_NoteAST;
+
+(* Initialise the m3fe with no-op compile *)
+PROCEDURE M3FEInit() =
+  VAR
+    source : M3Front.SourceFile;
+    env    := NEW(Env);
+  BEGIN
+    EVAL Target.Init("AMD64_LINUX");
+    source.name     := "/dev/null";
+    TRY
+      source.contents := FS.OpenFileReadonly(source.name);
+    EXCEPT
+    ELSE
+        IO.Put("failed to open /dev/null" & Wr.EOL);
+    END;
+    EVAL M3Front.ParseImports(source, env);
+    TRY
+      source.contents.close();
+    EXCEPT
+    ELSE
+        IO.Put("failed to close /dev/null" & Wr.EOL);
+    END;
+  END M3FEInit;
 
 (*--------------------------------------------------------- Debug Objects ---*)
 TYPE
@@ -1597,7 +1756,7 @@ TYPE
 (*------------------------------------------------------ Debug Procedures ---*)
 
 (* debug for locals and params *)
-PROCEDURE DebugVar(self : T; v : WaVar; argNum : CARDINAL := 0) =
+PROCEDURE DebugVar(self : T; v : WaVar; <*UNUSED*> argNum : CARDINAL := 0) =
   VAR
     name : TEXT;
   BEGIN
@@ -1611,10 +1770,9 @@ PROCEDURE DebugVar(self : T; v : WaVar; argNum : CARDINAL := 0) =
        Text.Equal(name,"_result") OR
        Text.Equal(name,"_link") THEN RETURN;
     END;
-
   END DebugVar;
 
-PROCEDURE DebugFunc(self : T; p : Proc) =
+PROCEDURE DebugFunc(self : T; <*UNUSED*> p : Proc) =
   BEGIN
     IF NOT self.genDebug THEN RETURN END;
   END DebugFunc;
@@ -1625,7 +1783,7 @@ PROCEDURE DebugClearLoc(self : T) =
     END;
   END DebugClearLoc;
 
-PROCEDURE DebugLine(self : T; line : INTEGER := 0) =
+PROCEDURE DebugLine(self : T; <*UNUSED*> line : INTEGER := 0) =
   BEGIN
     IF NOT self.genDebug THEN RETURN END;
   END DebugLine;
@@ -1675,7 +1833,7 @@ PROCEDURE DebugPopBlock(self : T) =
 (*-------------------------------------------------- Module Initialsation ---*)
 
 BEGIN
-  (* Static values *)
+  (* WASM Predeclared Types *)
   WTYPE_none        := WASM.TypeNone();
   WTYPE_i32         := WASM.TypeInt32();
   WTYPE_i64         := WASM.TypeInt64();
@@ -1722,5 +1880,40 @@ BEGIN
   IO.Put("WPACK_not         := " & Fmt.Int(WPACK_not) & Wr.EOL);
   IO.Put("WPACK_int8        := " & Fmt.Int(WPACK_int8) & Wr.EOL);
   IO.Put("WPACK_int16       := " & Fmt.Int(WPACK_int16) & Wr.EOL);
+
+  (* Modula-3 predeclared types, from m3fe *)
+  EVAL Target.Init("AMD64_LINUX");
+  M3FEInit();
+
+  VAR converted : BOOLEAN;
+  BEGIN
+    converted := TInt.ToInt(TInt.Min8, WDEF_Min8);
+    <* ASSERT converted *>
+    converted := TInt.ToInt(TInt.Max8, WDEF_Max8);
+    <* ASSERT converted *>
+    converted := TInt.ToInt(TInt.Max8U, WDEF_Max8U);
+    <* ASSERT converted *>
+    converted := TInt.ToInt(TInt.Min16, WDEF_Min16);
+    <* ASSERT converted *>
+    converted := TInt.ToInt(TInt.Max16, WDEF_Max16);
+    <* ASSERT converted *>
+    converted := TInt.ToInt(TInt.Max16U, WDEF_Max16U);
+    <* ASSERT converted *>
+    converted := TInt.ToInt(TInt.Min32, WDEF_Min32);
+    <* ASSERT converted *>
+    converted := TInt.ToInt(TInt.Max32, WDEF_Max32);
+    <* ASSERT converted *>
+    converted := TInt.ToInt(TInt.Max32U, WDEF_Max32U);
+    <* ASSERT converted *>
+    converted := TInt.ToInt(TInt.Min64, WDEF_Min64);
+    <* ASSERT converted *>
+    converted := TInt.ToInt(TInt.Max64, WDEF_Max64);
+    <* ASSERT converted *>
+    (* converted := TInt.ToInt(TInt.Max64U, WDEF_Max64U); *)
+    (* ASSERT failure *)
+    (* not representable on a 64 bit machine - placeholder for now *)
+    WDEF_Max64U := WDEF_Max64;
+  END;
+
 
 END M3NG_WASM.

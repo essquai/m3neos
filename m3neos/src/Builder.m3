@@ -354,6 +354,8 @@ PROCEDURE CompileUnits (main     : TEXT;
     ELSE
       s.parallelback := 1
     END;
+    (* TODO: revert *)
+    s.parallelback := 1;
 
     ETimer.Push (M3Timers.localobj);
       Utils.NoteLocalFileTimes ();
