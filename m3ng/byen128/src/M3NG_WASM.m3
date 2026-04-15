@@ -54,6 +54,10 @@ REVEAL
   
     curEnum       : WaOrdinal; (* Most recent enum ... *)
     next_element  := 0;       (* .. and its next element*)
+    
+    curSig        : WaSig;    (* Most recent proctype whose ... *)
+    next_formal   := 0;       (* ... formals are next to gather ... *)
+    next_raise    := 0;       (* ... and raises *)  
 
     procStack     : RefSeq.T := NIL;
     modStack      : RefSeq.T := NIL;    (* imported modules *)
@@ -397,10 +401,10 @@ TYPE
     offset : BitOffset := 0;
     type : WASM.Type := NOTYPE;
     pack : WASM.Packed := NOTYPE;
-    numParams : INTEGER := 0;
+    numFields : INTEGER := 0;
     integral : BOOLEAN := TRUE;
   METHODS
-    init(size : BitSize := 0; offset : BitOffset := 0; wtype : WASM.Type := NOTYPE; numParams : INTEGER := 0; pack : WASM.Packed := NOTYPE) : WaDefn := Typeinit;
+    init(size : BitSize := 0; offset : BitOffset := 0; wtype : WASM.Type := NOTYPE; numFields : INTEGER := 0; pack : WASM.Packed := NOTYPE) : WaDefn := Typeinit;
   END;
 
   WaOrdinal = WaDefn OBJECT
@@ -418,7 +422,8 @@ TYPE
 
   WaRef = WaDefn OBJECT
     (* ^References PLUS mutexes *)
-    any : TypeUID := NOTYPE;
+    any      : TypeUID := NOTYPE;
+    indirect := FALSE;
   END;
 
   WaArray = WaDefn OBJECT
@@ -433,7 +438,7 @@ TYPE
     open  : CARDINAL   := 0
   END;
 
-  WaParam = WaDefn OBJECT
+  WaField = WaDefn OBJECT
     (* ^Multi-purpose: struct/object fields, object methods, procedure parameters
         As a convenience, parameter referent is NARROWed here *)
     ord : WaOrdinal := NIL;
@@ -441,6 +446,8 @@ TYPE
     ref : WaRef     := NIL;
     arr : WaArray   := NIL;
     str : WaStruct  := NIL;
+    sig : WaSig     := NIL;
+    opq : WaOpaque  := NIL;
   END;
 
   WaStruct = WaDefn OBJECT
@@ -450,11 +457,27 @@ TYPE
        Let's call them Struct.
        Both records and objects are subject to WASM Garbage Collection,
        which makes them struct references declared with a type  *)
-    params:  REF ARRAY OF WaParam := NIL;
+    fields:  REF ARRAY OF WaField := NIL;
     numMethods : INTEGER := 0;
-    methods: REF ARRAY OF WaParam := NIL;
+    methods: REF ARRAY OF WaField := NIL;
 
     super: WaStruct := NIL;
+  END;
+
+  WaOpaque = WaDefn OBJECT
+    (* ^supertype relationship *)
+    super : TypeUID := NOTYPE;
+    def   : WaDefn  := NIL; (* supertype may not be defined yet, either? *)
+  END;
+
+  WaSig = WaDefn OBJECT
+    (* ^ A procedure signature - definition for methods and proctype variables *)
+    cc        : CallingConvention;
+    result    : TypeUID;
+
+    fields    : REF ARRAY OF WaField := NIL;
+    numRaises : INTEGER;
+    raises    : REF ARRAY OF Name := NIL;
   END;
 
   WaMod = OBJECT
@@ -534,12 +557,13 @@ PROCEDURE declare_local
     RETURN v;
   END declare_local;
 
-PROCEDURE declare_param (self: T;  n: Name;  s: ByteSize;  a: Alignment; t: Type;  m3t: TypeUID;  in_memory, up_level: BOOLEAN; f: Frequency; typeName : Name): Var =
+PROCEDURE declare_param (self: T;  n: Name;  s: ByteSize;  a: Alignment; t: Type;  m3t: TypeUID;  in_memory, up_level: BOOLEAN; f: Frequency; <*UNUSED*>typeName : Name): Var =
   (* A formal parameter of a procedure, not of a procedure type, (which
      is given by declare_formal). *)
   VAR
     v : WaVar;
     proc : WaProc;
+    def : WaDefn;
   BEGIN
     (* This appears after either import_procedure (which can occur inside
        the body of a different procedure, i.e., between begin_procedure and
@@ -568,10 +592,27 @@ PROCEDURE declare_param (self: T;  n: Name;  s: ByteSize;  a: Alignment; t: Type
     END;
 
     IF n # M3ID.NoID THEN
-      self.Trace("declare_param ", M3ID.ToText(n), " typename=", M3ID.ToText(typeName), eol := FALSE);
+      self.Trace("declare_param ", M3ID.ToText(n), eol := FALSE);
     ELSE
       self.Trace("declare_param NoID", eol := FALSE);
     END;
+
+    def := Typedef(self, m3t);
+    TYPECASE def OF
+    WaOrdinal        => 
+    | WaFloat        => 
+    | WaRef (ref)    => 
+                        IF (ref.indirect) THEN
+                          self.Trace(" indirect", eol := FALSE);
+                        END;
+    | WaArray        => 
+    | WaStruct       => 
+    | WaSig          => 
+    | WaOpaque       =>
+    ELSE
+    <* ASSERT FALSE *>
+    END;
+
     self.Trace(" type=",Target.TypeNames[t]," index=", Fmt.Int(v.waIndex), " wtype=", Fmt.Int(v.waType));
     RETURN v;
   END declare_param;
@@ -717,10 +758,10 @@ PROCEDURE declare_array(self: T; typeid, index_typeid, element_typeid: TypeUID; 
     arr.element   := elt;
     arr.ofArray   := ofA;
     arr.fixed     := fix;
-    arr.numParams := fix.number;
+    arr.numFields := fix.number;
     Typeadd(self, arr);
     self.Trace("declare_array type=", M3IR.FormatUID(typeid), " idx=", Typelabel(fix), " elt=", Typelabel(elt), eol := FALSE);
-    self.Trace(" numParams=", Fmt.Int(arr.numParams), " ofArray=", Fmt.Bool(ofA # NIL));
+    self.Trace(" numFields=", Fmt.Int(arr.numFields), " ofArray=", Fmt.Bool(ofA # NIL));
   END declare_array;
 
 
@@ -756,7 +797,7 @@ PROCEDURE declare_enum(self: T; typeid: TypeUID; n_elts: INTEGER; bit_size: BitS
       self.curEnum      := enum;
       self.next_element := 0;
       enum.elements     := NEW(REF ARRAY OF WaDefn, n_elts);
-      enum.numParams    := n_elts;
+      enum.numFields    := n_elts;
       enum.last         := n_elts - 1;
       IF enum.size = 8 THEN  enum.pack := WPACK_int8;
                        ELSIF enum.size = 16 THEN enum.pack := WPACK_int16; END;
@@ -770,11 +811,11 @@ PROCEDURE declare_enum_elt(self: T; name: Name) =
   VAR enum := self.curEnum;
   BEGIN
     self.Trace("declare_enum_elt ", M3ID.ToText(name));
-    <* ASSERT enum # NIL AND self.next_element < enum.numParams *>
+    <* ASSERT enum # NIL AND self.next_element < enum.numFields *>
 
     enum.elements[self.next_element] := NEW(WaDefn, typeid := enum.typeid, name := name, pack := enum.pack);
     INC(self.next_element);
-    IF self.next_element >= enum.numParams THEN
+    IF self.next_element >= enum.numFields THEN
       (* enumeration complete *)
       Typeadd(self, enum);
       self.curEnum := NIL;
@@ -785,22 +826,28 @@ PROCEDURE declare_enum_elt(self: T; name: Name) =
 <*NOWARN*>PROCEDURE declare_packed(self: T; typeid: TypeUID; bit_size: BitSize; base: TypeUID; base_typename: Name) = BEGIN END declare_packed;
 
 PROCEDURE declare_record(self: T; typeid: TypeUID; bit_size: BitSize; n_fields: INTEGER) = 
-  VAR s := NewStruct (self:=self, typeid := typeid, bit_size := bit_size, numParams := n_fields, numMethods := 0);
+  VAR s := NewStruct (self:=self, typeid := typeid, bit_size := bit_size, numFields := n_fields, numMethods := 0);
   BEGIN
     self.Trace("declare_record ", M3IR.FormatUID(typeid), " n_fields=", Fmt.Int(n_fields));
     self.curStruct   := s;
     self.next_field  := 0;
     self.next_method := 0;
+    IF self.next_field >= s.numFields
+       AND self.next_method >= s.numMethods THEN
+      (* structure complete *)
+      PushRev(self.defStack, s);
+      self.curStruct := NIL;
+    END;
   END declare_record;
 
 PROCEDURE declare_field(self: T; name: Name; bit_offset: BitOffset; bit_size: BitSize; typeid: TypeUID; <*UNUSED*> typename: Name) =
   VAR
-    fld := NEW(WaParam, typeid := typeid, name := name, size := bit_size, offset := bit_offset);
+    fld := NEW(WaField, typeid := typeid, name := name, size := bit_size, offset := bit_offset);
     def := Typedef(self, typeid);
     str := self.curStruct;
   BEGIN
     <* ASSERT str # NIL *>
-    <* ASSERT self.next_field < str.numParams *>
+    <* ASSERT self.next_field < str.numFields *>
     <* ASSERT def # NIL *>
     self.Trace("  declare_field ", M3ID.ToText(name), " num=", Fmt.Int(self.next_field), " type=", Typelabel(def));
     TYPECASE def OF
@@ -809,16 +856,18 @@ PROCEDURE declare_field(self: T; name: Name; bit_offset: BitOffset; bit_size: Bi
     | WaRef (ref)    => fld.ref := ref;
     | WaArray (arr)  => fld.arr := arr;
     | WaStruct (str) => fld.str := str;
+    | WaSig (sig)    => fld.sig := sig;
+    | WaOpaque (opq) => fld.opq := opq;
     ELSE
     <* ASSERT FALSE *>
     END;
     (* duplicate these from the referenced field type definition to param *)
     fld.type := def.type;
     fld.pack := def.pack;
-    str.params[self.next_field] := fld;
+    str.fields[self.next_field] := fld;
 
     INC(self.next_field);
-    IF self.next_field >= str.numParams
+    IF self.next_field >= str.numFields
        AND self.next_method >= str.numMethods THEN
       (* structure complete *)
       PushRev(self.defStack, str);
@@ -865,32 +914,118 @@ PROCEDURE declare_pointer(self: T; typeid, target_typeid: TypeUID; <*UNUSED*> br
   END declare_pointer;
 
 
-<*NOWARN*>PROCEDURE declare_indirect(self: T; typeid, target_typeid: TypeUID; target_typename: Name) = BEGIN END declare_indirect;
-<*NOWARN*>PROCEDURE declare_proctype(self: T; typeid: TypeUID; n_formals: INTEGER; result: TypeUID; n_raises: INTEGER; callingConvention: CallingConvention; result_typename: Name) = BEGIN END declare_proctype;
-<*NOWARN*>PROCEDURE declare_formal(self: T; name: Name; typeid: TypeUID; typename: Name) = BEGIN END declare_formal;
-<*NOWARN*>PROCEDURE declare_raises(self: T; name: Name) = BEGIN END declare_raises;
+PROCEDURE declare_indirect(self: T; typeid, target_typeid: TypeUID; <*UNUSED*>target_typename: Name) =
+  VAR
+    ref := NEW(WaRef, typeid := typeid, type := WTYPE_anyref, size := 64, integral := FALSE, indirect := TRUE, any := target_typeid);
+    def := Typedef(self, target_typeid);
+  BEGIN
+    <* ASSERT def # NIL *>
+    self.Trace("declare_indirect from=", M3IR.FormatUID(typeid), " to=", M3IR.FormatUID(target_typeid), " type=", Typelabel(def));
+    Typeadd(self, ref);
+  END declare_indirect;
 
-PROCEDURE declare_object(self: T; typeid : TypeUID; <*UNUSED*> super_typeid: TypeUID; <*UNUSED*>brand: TEXT; <*UNUSED*>traced: BOOLEAN; n_fields, n_methods: INTEGER; field_size: BitSize; <*UNUSED*>super_typename: Name) =
-  VAR s := NewStruct (self:=self, typeid := typeid, bit_size := field_size, numParams := n_fields, numMethods := n_methods);
+PROCEDURE declare_proctype(self: T; typeid: TypeUID; n_formals: INTEGER; result: TypeUID; n_raises: INTEGER; callingConvention: CallingConvention; <*UNUSED*> result_typename: Name) =
+  VAR sig := NewSig(self, typeid := typeid, n_formals := n_formals, result := result, n_raises := n_raises, cc := callingConvention);
+  BEGIN
+    self.Trace("declare_proctype ", M3IR.FormatUID(typeid), " n_formals=", Fmt.Int(n_formals), " n_raises=", Fmt.Int(n_raises));
+    self.curSig       := sig;
+    self.next_formal  := 0;
+    self.next_raise   := 0;
+    IF self.next_formal >= sig.numFields
+       AND self.next_raise >= sig.numRaises THEN
+      (* proctype complete *)
+      PushRev(self.defStack, sig);
+      self.curSig := NIL;
+    END;
+  END declare_proctype;
+
+PROCEDURE declare_formal(self: T; name: Name; typeid: TypeUID; <*UNUSED*> typename: Name) =
+  VAR
+    sig := self.curSig;
+    fld := NEW(WaField, typeid := typeid, name := name);
+    def := Typedef(self, typeid);
+    direct := TRUE;
+  BEGIN
+    self.Trace("declare_formal typeid=", M3IR.FormatUID(typeid), " name=", M3ID.ToText(name), " num=", Fmt.Int(self.next_formal), eol := FALSE);
+    fld.type     := def.type;
+    fld.pack     := def.pack;
+    fld.integral := def.integral;
+    TYPECASE def OF
+    WaOrdinal (ord)  => fld.ord := ord;
+    | WaFloat (flt)  => fld.flt := flt;
+    | WaRef (ref)    => fld.ref := ref;
+                        direct := NOT ref.indirect;
+    | WaArray (arr)  => fld.arr := arr;
+    | WaStruct (str) => fld.str := str;
+    | WaSig (sig)    => fld.sig := sig;
+    | WaOpaque (opq) => fld.opq := opq;
+    ELSE
+      <* ASSERT FALSE *>
+    END;
+    self.Trace(" indirect=", Fmt.Bool(NOT direct));
+
+    sig.fields[self.next_formal] := fld;
+    INC(self.next_formal);
+
+    IF self.next_formal >= sig.numFields
+       AND self.next_raise >= sig.numRaises THEN
+      (* proctype complete *)
+      PushRev(self.defStack, sig);
+      self.curSig := NIL;
+    END;
+  END declare_formal;
+
+PROCEDURE declare_raises(self: T; name: Name) =
+  VAR sig := self.curSig;
+  BEGIN
+    self.Trace("declare_raises num=", Fmt.Int(self.next_raise), " name=", M3ID.ToText(name));
+    sig.raises[self.next_raise] := name;
+    INC(self.next_raise);
+    IF self.next_formal >= sig.numFields
+       AND self.next_raise >= sig.numRaises THEN
+      (* proctype complete *)
+      PushRev(self.defStack, sig);
+      self.curSig := NIL;
+    END;
+  END declare_raises;
+
+PROCEDURE declare_object(self: T; typeid : TypeUID; super_typeid: TypeUID; <*UNUSED*>brand: TEXT; <*UNUSED*>traced: BOOLEAN; n_fields, n_methods: INTEGER; field_size: BitSize; <*UNUSED*>super_typename: Name) =
+  VAR
+    s := NewStruct (self:=self, typeid := typeid, bit_size := field_size, numFields := n_fields, numMethods := n_methods);
+    def := Typedef(self, super_typeid);
   BEGIN
     self.Trace("declare_object ", Fmt.Int(typeid));
     self.curStruct   := s;
     self.next_field  := 0;
     self.next_method := 0;
+    IF def # NIL THEN
+      s.super := NARROW(def, WaStruct);
+    END;
+    IF self.next_field >= s.numFields
+       AND self.next_method >= s.numMethods THEN
+      (* structure complete *)
+      PushRev(self.defStack, s);
+      self.curStruct := NIL;
+    END;
   END declare_object;
 
 PROCEDURE declare_method(self: T; name: Name; signature: TypeUID) =
   VAR
-    fld := NEW(WaParam, typeid := signature, type := WTYPE_funcref, name := name, pack := WPACK_not);
+    fld := NEW(WaField, typeid := signature, type := WTYPE_funcref, name := name, pack := WPACK_not);
     str := self.curStruct;
+    def := Typedef(self, signature);
   BEGIN
     <* ASSERT str # NIL *>
     <* ASSERT self.next_method < str.numMethods *>
-    self.Trace("declare_method ", M3ID.ToText(name), " num=", Fmt.Int(self.next_method));
-    str.methods[self.next_method] := fld;
+    self.Trace("declare_method ", M3ID.ToText(name), " num=", Fmt.Int(self.next_method), " signature=", M3IR.FormatUID(signature));
+    fld.pack     := def.pack;
+    fld.integral := def.integral;
+    fld.sig      := NARROW(def, WaSig);
 
+    str.methods[self.next_method] := fld;
     INC(self.next_method);
-    IF self.next_field >= str.numParams
+
+    IF self.next_field >= str.numFields
        AND self.next_method >= str.numMethods THEN
       (* structure complete *)
       PushRev(self.defStack, str);
@@ -898,7 +1033,16 @@ PROCEDURE declare_method(self: T; name: Name; signature: TypeUID) =
     END;
   END declare_method;
 
-<*NOWARN*>PROCEDURE declare_opaque(self: T; typeid, super_typeid: TypeUID) = BEGIN END declare_opaque;
+PROCEDURE declare_opaque(self: T; typeid, super_typeid: TypeUID) =
+  VAR
+    opq := NEW(WaOpaque, typeid := typeid, super := super_typeid, integral := FALSE);
+    def := Typedef(self, super_typeid);
+  BEGIN
+    opq.def := def;
+    self.Trace("declare_opaque ", M3IR.FormatUID(typeid), " <: ", M3IR.FormatUID(super_typeid), "def=", Fmt.Bool(def # NIL));
+    Typeadd(self, opq);
+  END declare_opaque;
+
 <*NOWARN*>PROCEDURE reveal_opaque(self: T; lhs_typeid, rhs_typeid: TypeUID) = BEGIN END reveal_opaque;
 <*NOWARN*>PROCEDURE declare_exception(self: T; name: Name; arg_typeid: TypeUID; raise_proc: BOOLEAN; base: Var; offset: INTEGER) = BEGIN END declare_exception;
 <*NOWARN*>PROCEDURE widechar_size(self: T; optimize: INTEGER) = BEGIN END widechar_size;
@@ -1421,8 +1565,8 @@ PROCEDURE ModStructs(self : T) =
       any := Get(self.defStack, i);
       IF ISTYPE(any, WaStruct) THEN
         str := NARROW(any,WaStruct);
-        IF str.numParams > fldMax THEN
-          fldMax := str.numParams;
+        IF str.numFields > fldMax THEN
+          fldMax := str.numFields;
         END;
       END;
     END;
@@ -1444,9 +1588,9 @@ PROCEDURE ModStructs(self : T) =
         str     := NARROW(any,WaStruct);
         strName := Typelabel(str);
         self.Trace("  Struct ", strName);
-        numElem := str.numParams;
+        numElem := str.numFields;
         FOR f := 0 TO numElem-1 DO
-          fld     := str.params[f];
+          fld     := str.fields[f];
           fldName := Typelabel(fld);
           fldStr  := Cstar(fldName);
           fldAttr := " size=" & Fmt.Int(fld.size) & " offset="
@@ -1481,9 +1625,9 @@ PROCEDURE ModStructs(self : T) =
           strName := Typelabel(str);
           strStr  := Cstar(strName);
           WASM.ModuleSetTypeName(self.moduleRef, heapType[i], strStr);
-          numElem := str.numParams;
+          numElem := str.numFields;
           FOR f := 0 TO numElem-1 DO
-            fld     := str.params[f];
+            fld     := str.fields[f];
             fldName := Typelabel(fld);
             fldStr  := Cstar(fldName);
             WASM.ModuleSetFieldName(self.moduleRef, heapType[i], f, fldStr);
@@ -1613,31 +1757,45 @@ PROCEDURE WasmType(t : Type) : WASM.Type =
     END;
   END WasmType;
 
-PROCEDURE Typeinit(self: WaDefn; size : BitSize := 0; offset : BitOffset := 0; wtype : WASM.Type := NOTYPE; numParams : INTEGER := 0; pack : WASM.Packed := NOTYPE) : WaDefn =
+PROCEDURE Typeinit(self: WaDefn; size : BitSize := 0; offset : BitOffset := 0; wtype : WASM.Type := NOTYPE; numFields : INTEGER := 0; pack : WASM.Packed := NOTYPE) : WaDefn =
   BEGIN
     self.size       := size;
     self.offset     := offset;
     self.type       := wtype;
-    self.numParams  := numParams;
+    self.numFields  := numFields;
     self.pack       := pack;
     RETURN self;
   END Typeinit;
 
-PROCEDURE NewStruct(self: T; typeid : TypeUID; bit_size: BitSize; numParams, numMethods : INTEGER): WaStruct =
+PROCEDURE NewStruct(self: T; typeid : TypeUID; bit_size: BitSize; numFields, numMethods : INTEGER): WaStruct =
   VAR
     s := NEW (WaStruct, typeid:= typeid, integral := FALSE);
   BEGIN
-    EVAL s.init(size := bit_size, offset := 0, wtype := WTYPE_structref, numParams := numParams, pack := WPACK_not);
-    IF numParams > 0 THEN
-      s.params := NEW(REF ARRAY OF WaParam, numParams);
+    EVAL s.init(size := bit_size, offset := 0, wtype := WTYPE_structref, numFields := numFields, pack := WPACK_not);
+    IF numFields > 0 THEN
+      s.fields := NEW(REF ARRAY OF WaField, numFields);
     END;
     IF numMethods > 0 THEN
       s.numMethods := numMethods;
-      s.methods := NEW(REF ARRAY OF WaParam, numMethods);
+      s.methods := NEW(REF ARRAY OF WaField, numMethods);
     END;
     Typeadd(self, s);
     RETURN s;
   END NewStruct;
+
+PROCEDURE NewSig(self: T; typeid: TypeUID; n_formals: INTEGER; result: TypeUID; n_raises: INTEGER; cc: CallingConvention) : WaSig =
+  VAR
+    s := NEW (WaSig, typeid := typeid, type := WTYPE_funcref, numFields := n_formals, result := result, numRaises := n_raises, cc := cc, integral := FALSE);
+  BEGIN
+    IF n_formals > 0 THEN
+      s.fields := NEW(REF ARRAY OF WaField, n_formals);
+    END;
+    IF n_raises > 0 THEN
+      s.raises := NEW(REF ARRAY OF Name, n_raises);
+    END;
+    Typeadd(self, s);
+    RETURN s;
+  END NewSig;
 
 PROCEDURE Typelabel(def : WaDefn) : TEXT =
   VAR lbl : TEXT;
