@@ -1484,9 +1484,7 @@ PROCEDURE PushOneM3 (s: State;  u: M3Unit.T): BOOLEAN =
       Temps_Add (temps, s, asmName);
       Temps_Add (temps, s, CCodeName);
     END;
-Msg.Info("PushOneM3 cm3OutName ", cm3OutName, Wr.EOL);
-Msg.Info("PushOneM3 cm3IRName ", cm3IRName, Wr.EOL);
-Msg.Info("PushOneM3 wasmName ", wasmName, Wr.EOL);
+    Msg.Debug("PushOneM3 cm3OutName ", cm3OutName, " cm3IRName " & cm3IRName, " wasmName " & wasmName);
     ok := RunM3Front (s, u, cm3OutName);
     IF NOT ok THEN 
       Msg.Error (NIL, "m3front failed compiling: ", UnitPath (u));
@@ -1872,7 +1870,6 @@ PROCEDURE Pass0_InitCodeGenerator (env: Env): M3IR.T =
   BEGIN
     env.cg     := NIL;
     env.target_wr := Utils.OpenWriter (env.object, fatal := FALSE);
-    Msg.Info("Pass0_InitCodeGenerator ", env.sideIRName, Wr.EOL);
     IF (env.target_wr # NIL) THEN
       env.cg := M3Backend.Open (
         env.globals.result_name,
