@@ -124,6 +124,10 @@ PROCEDURE TypeCreate(
     numTypes: Index
 ): Type;
 
+(* Translate heap type to type *)
+<*EXTERNAL "BinaryenTypeFromHeapType"*> PROCEDURE TypeFromHeap(
+    heapType : HeapTypeRef;
+    nullable : BOOLEAN) : Type;
 
 (* ============================================================================
  * Module Creation and Management
@@ -466,6 +470,12 @@ PROCEDURE AddFunction(
 (* Create a builder *)
 <*EXTERNAL "TypeBuilderCreate"*> PROCEDURE BuilderCreate(size : Index) : BuilderRef;
 
+(* Define Recursion Group *)
+<*EXTERNAL "TypeBuilderCreateRecGroup"*> PROCEDURE BuilderRecGroup(
+    builder : BuilderRef;
+    index : Index;
+    length : Index);
+
 (* Declare a structure *)
 <*EXTERNAL "TypeBuilderSetStructType"*> PROCEDURE TypeBuilderSetStructType(
     builder : BuilderRef;
@@ -492,6 +502,17 @@ PROCEDURE BuilderSetStruct(
     elementType : Type;
     elementPackedType : Packed;
     elementMutable : Index);
+
+(* Get interim heap type *)
+<* EXTERNAL "TypeBuilderGetTempHeapType"*> PROCEDURE BuilderGetTempHeapType(
+    builder : BuilderRef;
+    index : Index) : HeapTypeRef;
+
+(* Get interim ref type *)
+<* EXTERNAL "TypeBuilderGetTempRefType"*> PROCEDURE BuilderGetTempRefType(
+    builder : BuilderRef;
+    heapType : HeapTypeRef;
+    nullable : Index) : Type;
 
 (* Register the types *)
 <* EXTERNAL "TypeBuilderBuildAndDispose"*> PROCEDURE TypeBuilderBuildAndDispose(
@@ -866,6 +887,19 @@ PROCEDURE StructNew(
     index: Index;
     ref: ExpressionRef;
     value: ExpressionRef
+): ExpressionRef;
+
+
+(* ============================================================================
+ * Array Expression Operations
+ * ============================================================================ *)
+
+(* Array.new *)
+<*EXTERNAL "BinaryenArrayNew"*> PROCEDURE ArrayNew(
+    module: ModuleRef;
+    heapType : HeapTypeRef;
+    size: ExpressionRef;
+    init: ExpressionRef
 ): ExpressionRef;
 
 

@@ -61,7 +61,7 @@ REVEAL
 
     procStack     : RefSeq.T := NIL;
     modStack      : RefSeq.T := NIL;    (* imported modules *)
-    defStack      : RefSeq.T := NIL;    (* track the trash  *)
+    compStack     : RefSeq.T := NIL;    (* track the trash  *)
     defTable      : IntRefTbl.T := NIL; (* type definitions *)
 
     prolog        : WaProc := NIL; (* unit start procedure  *)
@@ -426,10 +426,17 @@ TYPE
     indirect := FALSE;
   END;
 
-  WaArray = WaDefn OBJECT
+  WaComp = WaDefn OBJECT
+    (* ^ Composite structures with reference types *)
+    bldGrp : INTEGER;                     (* used by builder    *)
+    wType  : WASM.Type        := NOTYPE;  (* for ref recursion  *)
+    heap   : WASM.HeapTypeRef := NIL;     (* created by builder *)
+  END;
+
+  WaArray = WaComp OBJECT
     (* common properties *)
-    element  : WaDefn    := NIL;
-    ofArray  : WaArray   := NIL; (* array of array *)
+    element  : WaDefn  := NIL;
+    ofComp   : WaComp  := NIL; (* array of composite element *)
 
     (* array is fixed iff # NIL *)
     fixed : WaOrdinal := NIL;
@@ -441,16 +448,17 @@ TYPE
   WaField = WaDefn OBJECT
     (* ^Multi-purpose: struct/object fields, object methods, procedure parameters
         As a convenience, parameter referent is NARROWed here *)
-    ord : WaOrdinal := NIL;
-    flt : WaFloat   := NIL;
-    ref : WaRef     := NIL;
-    arr : WaArray   := NIL;
-    str : WaStruct  := NIL;
-    sig : WaSig     := NIL;
-    opq : WaOpaque  := NIL;
+    ord  : WaOrdinal := NIL;
+    flt  : WaFloat   := NIL;
+    ref  : WaRef     := NIL;
+    arr  : WaArray   := NIL; (* and comp *)
+    str  : WaStruct  := NIL; (* and comp *)
+    sig  : WaSig     := NIL; (* and comp *)
+    opq  : WaOpaque  := NIL;
+    comp : WaComp    := NIL; (*  field is also a composite *)
   END;
 
-  WaStruct = WaDefn OBJECT
+  WaStruct = WaComp OBJECT
     (* ^In Modula-3, Objects are accessed by reference. In Wasm, records are 
        accessed by reference since values don't fit on the stack. For
        compiling, records are objects minus methods and supertype.
@@ -470,7 +478,7 @@ TYPE
     def   : WaDefn  := NIL; (* supertype may not be defined yet, either? *)
   END;
 
-  WaSig = WaDefn OBJECT
+  WaSig = WaComp OBJECT
     (* ^ A procedure signature - definition for methods and proctype variables *)
     cc        : CallingConvention;
     result    : TypeUID;
@@ -650,7 +658,6 @@ PROCEDURE import_procedure (self: T;  n: Name;  n_params: INTEGER;
       mod := ModFind(self, pfx);
       <* ASSERT mod # NIL *>
       Push(mod.funcStack, p);
-      self.Trace("\tmodule=", pfx);
     END;
 
     p.procTy := WasmType(return_type);
@@ -742,50 +749,52 @@ PROCEDURE declare_array(self: T; typeid, index_typeid, element_typeid: TypeUID; 
   VAR
     arr := NEW(WaArray, typeid := typeid, type := WTYPE_arrayref, size := bit_size);
     elt : WaDefn;
-    ofA : WaArray := NIL;
+    ofC : WaComp := NIL;
     idx : WaDefn;
     fix : WaOrdinal;
   BEGIN
     elt := Typedef(self, element_typeid);
     idx := Typedef(self, index_typeid);
     fix := NARROW(idx, WaOrdinal);
-    IF ISTYPE(elt, WaArray) THEN
-      ofA := NARROW(elt, WaArray);
+    IF ISTYPE(elt, WaComp) THEN
+      ofC := NARROW(elt, WaComp);
     END;
     <* ASSERT elt # NIL AND fix # NIL *>
 
+    self.Trace("declare_array type=", M3IR.FormatUID(typeid), " idx=", Typelabel(fix), " elt=", Typelabel(elt), eol := FALSE);
+    self.Trace(" numFields=", Fmt.Int(fix.number), " ofArray=", Fmt.Bool(ofC # NIL));
+
     (* Set the properties of the fixed array *)
     arr.element   := elt;
-    arr.ofArray   := ofA;
+    arr.ofComp    := ofC;
     arr.fixed     := fix;
     arr.numFields := fix.number;
     Typeadd(self, arr);
-    self.Trace("declare_array type=", M3IR.FormatUID(typeid), " idx=", Typelabel(fix), " elt=", Typelabel(elt), eol := FALSE);
-    self.Trace(" numFields=", Fmt.Int(arr.numFields), " ofArray=", Fmt.Bool(ofA # NIL));
+    Compadd(self, arr);
   END declare_array;
-
 
 PROCEDURE declare_open_array(self: T; typeid, element_typeid: TypeUID; bit_size: BitSize; <*UNUSED*>element_typename: Name) =
   VAR
     arr := NEW(WaArray, typeid := typeid, type := WTYPE_arrayref, size := bit_size);
     elt : WaDefn;
     dim : INTEGER;
-    ofA : WaArray := NIL;
+    ofC : WaComp := NIL;
   BEGIN
     elt := Typedef(self, element_typeid);
     dim := (bit_size - 64) DIV 64;
-    IF ISTYPE(elt, WaArray) THEN
-      ofA := NARROW(elt, WaArray);
+    IF ISTYPE(elt, WaComp) THEN
+      ofC := NARROW(elt, WaComp);
     END;
     <* ASSERT elt # NIL AND dim > 0 *>
+    self.Trace("declare_open_array type=", M3IR.FormatUID(typeid), " elt=", Typelabel(elt), eol := FALSE);
+    self.Trace(" open=", Fmt.Int(dim), " ofComp=", Fmt.Bool(ofC # NIL));
 
     (* Set the properties of the open array *)
     arr.element   := elt;
-    arr.ofArray   := ofA;
+    arr.ofComp   := ofC;
     arr.open      := dim;
     Typeadd(self, arr);
-    self.Trace("declare_open_array type=", M3IR.FormatUID(typeid), " elt=", Typelabel(elt), eol := FALSE);
-    self.Trace(" open=", Fmt.Int(arr.open), " ofArray=", Fmt.Bool(ofA # NIL));
+    Compadd(self, arr);
   END declare_open_array;
 
 PROCEDURE declare_enum(self: T; typeid: TypeUID; n_elts: INTEGER; bit_size: BitSize) =
@@ -829,48 +838,42 @@ PROCEDURE declare_record(self: T; typeid: TypeUID; bit_size: BitSize; n_fields: 
   VAR s := NewStruct (self:=self, typeid := typeid, bit_size := bit_size, numFields := n_fields, numMethods := 0);
   BEGIN
     self.Trace("declare_record ", M3IR.FormatUID(typeid), " n_fields=", Fmt.Int(n_fields));
+    IF typeid = M3IR.NO_UID THEN RETURN END;
     self.curStruct   := s;
     self.next_field  := 0;
     self.next_method := 0;
     IF self.next_field >= s.numFields
        AND self.next_method >= s.numMethods THEN
       (* structure complete *)
-      PushRev(self.defStack, s);
+      Compadd(self, s);
       self.curStruct := NIL;
     END;
   END declare_record;
 
 PROCEDURE declare_field(self: T; name: Name; bit_offset: BitOffset; bit_size: BitSize; typeid: TypeUID; <*UNUSED*> typename: Name) =
   VAR
-    fld := NEW(WaField, typeid := typeid, name := name, size := bit_size, offset := bit_offset);
+    fld :  WaField;
     def := Typedef(self, typeid);
     str := self.curStruct;
   BEGIN
+    IF str = NIL THEN
+      self.Trace("  declare_field - ignore");
+      RETURN;
+    END;
+    fld := NewField(def, typeid := typeid, name := name, type := def.type, size := bit_size, offset := bit_offset, pack := def.pack);
     <* ASSERT str # NIL *>
     <* ASSERT self.next_field < str.numFields *>
     <* ASSERT def # NIL *>
     self.Trace("  declare_field ", M3ID.ToText(name), " num=", Fmt.Int(self.next_field), " type=", Typelabel(def));
-    TYPECASE def OF
-    WaOrdinal (ord)  => fld.ord := ord;
-    | WaFloat (flt)  => fld.flt := flt;
-    | WaRef (ref)    => fld.ref := ref;
-    | WaArray (arr)  => fld.arr := arr;
-    | WaStruct (str) => fld.str := str;
-    | WaSig (sig)    => fld.sig := sig;
-    | WaOpaque (opq) => fld.opq := opq;
-    ELSE
-    <* ASSERT FALSE *>
-    END;
+
     (* duplicate these from the referenced field type definition to param *)
-    fld.type := def.type;
-    fld.pack := def.pack;
     str.fields[self.next_field] := fld;
 
     INC(self.next_field);
     IF self.next_field >= str.numFields
        AND self.next_method >= str.numMethods THEN
       (* structure complete *)
-      PushRev(self.defStack, str);
+      Compadd(self, str);
       self.curStruct := NIL;
     END;
   END declare_field;
@@ -934,7 +937,7 @@ PROCEDURE declare_proctype(self: T; typeid: TypeUID; n_formals: INTEGER; result:
     IF self.next_formal >= sig.numFields
        AND self.next_raise >= sig.numRaises THEN
       (* proctype complete *)
-      PushRev(self.defStack, sig);
+      Compadd(self, sig);
       self.curSig := NIL;
     END;
   END declare_proctype;
@@ -942,26 +945,15 @@ PROCEDURE declare_proctype(self: T; typeid: TypeUID; n_formals: INTEGER; result:
 PROCEDURE declare_formal(self: T; name: Name; typeid: TypeUID; <*UNUSED*> typename: Name) =
   VAR
     sig := self.curSig;
-    fld := NEW(WaField, typeid := typeid, name := name);
+    fld :  WaField;
     def := Typedef(self, typeid);
     direct := TRUE;
   BEGIN
-    self.Trace("declare_formal typeid=", M3IR.FormatUID(typeid), " name=", M3ID.ToText(name), " num=", Fmt.Int(self.next_formal), eol := FALSE);
-    fld.type     := def.type;
-    fld.pack     := def.pack;
+    fld := NewField(def, typeid := typeid, name := name, type := def.type, pack := def.pack);
     fld.integral := def.integral;
-    TYPECASE def OF
-    WaOrdinal (ord)  => fld.ord := ord;
-    | WaFloat (flt)  => fld.flt := flt;
-    | WaRef (ref)    => fld.ref := ref;
-                        direct := NOT ref.indirect;
-    | WaArray (arr)  => fld.arr := arr;
-    | WaStruct (str) => fld.str := str;
-    | WaSig (sig)    => fld.sig := sig;
-    | WaOpaque (opq) => fld.opq := opq;
-    ELSE
-      <* ASSERT FALSE *>
-    END;
+    IF fld.ref # NIL THEN direct := NOT fld.ref.indirect; END;
+
+    self.Trace("declare_formal typeid=", M3IR.FormatUID(typeid), " name=", M3ID.ToText(name), " num=", Fmt.Int(self.next_formal), eol := FALSE);
     self.Trace(" indirect=", Fmt.Bool(NOT direct));
 
     sig.fields[self.next_formal] := fld;
@@ -970,7 +962,7 @@ PROCEDURE declare_formal(self: T; name: Name; typeid: TypeUID; <*UNUSED*> typena
     IF self.next_formal >= sig.numFields
        AND self.next_raise >= sig.numRaises THEN
       (* proctype complete *)
-      PushRev(self.defStack, sig);
+      Compadd(self, sig);
       self.curSig := NIL;
     END;
   END declare_formal;
@@ -984,7 +976,7 @@ PROCEDURE declare_raises(self: T; name: Name) =
     IF self.next_formal >= sig.numFields
        AND self.next_raise >= sig.numRaises THEN
       (* proctype complete *)
-      PushRev(self.defStack, sig);
+      Compadd(self, sig);
       self.curSig := NIL;
     END;
   END declare_raises;
@@ -1004,23 +996,23 @@ PROCEDURE declare_object(self: T; typeid : TypeUID; super_typeid: TypeUID; <*UNU
     IF self.next_field >= s.numFields
        AND self.next_method >= s.numMethods THEN
       (* structure complete *)
-      PushRev(self.defStack, s);
+      Compadd(self, s);
       self.curStruct := NIL;
     END;
   END declare_object;
 
 PROCEDURE declare_method(self: T; name: Name; signature: TypeUID) =
   VAR
-    fld := NEW(WaField, typeid := signature, type := WTYPE_funcref, name := name, pack := WPACK_not);
+    fld :   WaField;
     str := self.curStruct;
     def := Typedef(self, signature);
   BEGIN
+    fld := NewField(def, typeid := signature, type := WTYPE_funcref, name := name, pack := def.pack);
     <* ASSERT str # NIL *>
     <* ASSERT self.next_method < str.numMethods *>
     self.Trace("declare_method ", M3ID.ToText(name), " num=", Fmt.Int(self.next_method), " signature=", M3IR.FormatUID(signature));
-    fld.pack     := def.pack;
     fld.integral := def.integral;
-    fld.sig      := NARROW(def, WaSig);
+    <* ASSERT fld.sig # NIL *>
 
     str.methods[self.next_method] := fld;
     INC(self.next_method);
@@ -1028,7 +1020,7 @@ PROCEDURE declare_method(self: T; name: Name; signature: TypeUID) =
     IF self.next_field >= str.numFields
        AND self.next_method >= str.numMethods THEN
       (* structure complete *)
-      PushRev(self.defStack, str);
+      Compadd(self, str);
       self.curStruct := NIL;
     END;
   END declare_method;
@@ -1311,7 +1303,7 @@ PROCEDURE module_write(t: T; binFileName, textFileName: TEXT) : INTEGER =
     t.Trace("module_write");
 
     ModImports(t);
-    ModStructs(t);
+    ModCompos(t);
     IF WASM.ModuleValidate(t.moduleRef) = 1 THEN
       t.Trace("Module validation successful.")
     ELSE
@@ -1353,6 +1345,7 @@ PROCEDURE New(WasmDebug : BOOLEAN; GenDebug: BOOLEAN) : T =
     ord   : WaOrdinal;
     flt   : WaFloat;
     ref   : WaRef;
+    str   : WaStruct;
     first : INTEGER;
   BEGIN
     WASM.ModuleSetWorld(TRUE);
@@ -1369,7 +1362,7 @@ PROCEDURE New(WasmDebug : BOOLEAN; GenDebug: BOOLEAN) : T =
     t.procStack     := NEW(RefSeq.T).init();
     t.modStack      := NEW(RefSeq.T).init();
     t.debugLexStack := NEW(RefSeq.T).init();
-    t.defStack      := NEW(RefSeq.T).init();
+    t.compStack     := NEW(RefSeq.T).init();
     t.defTable      := NEW(IntRefTbl.Default).init(sizeHint := 20);
 
     (* Construct the pre-declared types from the front end *)
@@ -1403,10 +1396,12 @@ PROCEDURE New(WasmDebug : BOOLEAN; GenDebug: BOOLEAN) : T =
       | Predeclared.WCharr =>
                 ord := NEW(WaOrdinal, type := WTYPE_i32, size := 16, first := 0, last := WDEF_Max16U, number := WDEF_Max16U+1, pack := WPACK_int16);
                 def := ord;
-      | Predeclared.Addr, Predeclared.ObjectAdr,
-        Predeclared.Reff, Predeclared.ObjectRef =>
+      | Predeclared.Addr, Predeclared.Reff =>
                 ref := NEW(WaRef, type := WTYPE_anyref, size := 64, integral := FALSE);
                 def := ref;
+      | Predeclared.ObjectAdr, Predeclared.ObjectRef =>
+                str := NewStruct(t, typeid := M3FEBuiltin.KindUID[k], bit_size := 0, numFields := 0, numMethods := 0);
+                def := str;
       | Predeclared.Mutex =>
                 ref := NEW(WaRef, type := WTYPE_i31ref, size := 32, any := M3FEBuiltin.KindUID[Predeclared.Int]);
                 def := ref;
@@ -1427,7 +1422,7 @@ PROCEDURE New(WasmDebug : BOOLEAN; GenDebug: BOOLEAN) : T =
 PROCEDURE ModPrefix(self : T; n : TEXT; VAR i3 : BOOLEAN) : TEXT =
   VAR usi := ModUnderscores(n); pfx := n; len := Text.Length(n);
   BEGIN
-    self.Trace("ModPrefix ", n);
+    self.Trace("  ModPrefix ", n, eol := FALSE);
     i3 := FALSE;
     IF usi > 0 THEN
       pfx := Text.Sub(n, 0, usi);
@@ -1435,7 +1430,7 @@ PROCEDURE ModPrefix(self : T; n : TEXT; VAR i3 : BOOLEAN) : TEXT =
       pfx := Text.Sub(n, 0, len-3);
       i3 := TRUE;
     END;
-    self.Trace("\tprefix=", pfx, " usi=", Fmt.Int(usi));
+    self.Trace(" prefix=", pfx, " usi=", Fmt.Int(usi));
     RETURN pfx;
   END ModPrefix;
 
@@ -1477,10 +1472,10 @@ PROCEDURE ModFind(self : T; name : TEXT) : WaMod =
     n := M3ID.Add(name);
     numMods := self.modStack.size();
   BEGIN
-    self.Trace("ModFind ", name);
+    self.Trace("  ModFind ", name, eol := FALSE);
     IF self.moduleObj.name = n THEN
       m := self.moduleObj;
-      self.Trace("\tmoduleObj");
+      self.Trace(" moduleObj", eol := FALSE);
     END;
     WHILE m = NIL AND i < numMods DO
       a := Get(self.modStack, i);
@@ -1491,9 +1486,9 @@ PROCEDURE ModFind(self : T; name : TEXT) : WaMod =
       INC(i);
     END;
     IF m # NIL THEN
-      self.Trace("\tfound");
+      self.Trace(" found");
     ELSE
-      self.Trace("\tnot found");
+      self.Trace(" not found");
     END;
     RETURN m;
   END ModFind;
@@ -1535,115 +1530,322 @@ PROCEDURE ModImports(self : T) =
     END;
   END ModImports;
 
-PROCEDURE ModStructs(self : T) =
+TYPE BldGroup = RECORD
+  numComps : INTEGER;
+  Comp     : REF ARRAY OF WaComp;
+  heapType : REF ARRAY OF WASM.HeapTypeRef;
+END;
+
+PROCEDURE ModCompos(self : T) =
   VAR
-    numStructs := self.defStack.size();
+    numComps := self.compStack.size();
+    Comp    : REF ARRAY OF WaComp;
+    Grouped : REF ARRAY OF BOOLEAN;
     numElem : INTEGER;
-    str     : WaStruct;
-    fld     : WaDefn;
-    strName : TEXT;
-    fldName : TEXT;
-    fldAttr : TEXT;
-    strStr  : Ctypes.char_star;
-    fldStr  : Ctypes.char_star;
     fldMax  : INTEGER := 0;
     fldType : REF ARRAY OF WASM.Type;
     fldPack : REF ARRAY OF WASM.Packed;
     fldMut  : REF ARRAY OF CHAR;
-    bld     : WASM.BuilderRef;
-    errIdx  : WASM.Index;
-    errRsn  : WASM.BuilderError;
-    heapType: REF ARRAY OF WASM.HeapTypeRef;
-    bldOK   : BOOLEAN;
-    strNew  : WASM.ExpressionRef;
-    any     : REFANY;
-  BEGIN
-    self.Trace("ModStructs ", Fmt.Int(numStructs));
+    groups  : INTEGER;
+    bldGroup: REF ARRAY OF REF BldGroup;
+    all     : BldGroup;
 
-    (* Structure attribute allocation *)
-    FOR i := 0 TO numStructs-1 DO
-      any := Get(self.defStack, i);
-      IF ISTYPE(any, WaStruct) THEN
-        str := NARROW(any,WaStruct);
-        IF str.numFields > fldMax THEN
-          fldMax := str.numFields;
+    PROCEDURE countGroups(Comp : REF ARRAY OF WaComp; Grouped : REF ARRAY OF BOOLEAN; numComps : INTEGER) : INTEGER =
+      VAR
+        old_groups : INTEGER := 0;
+        groups     : INTEGER := numComps;
+      BEGIN
+        WHILE groups # old_groups DO
+          old_groups := groups;
+          groups     := 0;
+          FOR i := 0 TO numComps-1 DO
+            Grouped[i] := FALSE;
+          END;
+          FOR i := 0 TO numComps -1 DO
+            TYPECASE Comp[i] OF
+            | WaArray (arr)  => 
+                IF arr.ofComp # NIL THEN
+                  (* same group as the composite's one *)
+                  arr.bldGrp := Comp[arr.ofComp.bldGrp].bldGrp;
+                  IF NOT Grouped[arr.bldGrp] THEN
+                    Grouped[arr.bldGrp] := TRUE;
+                    INC(groups);
+                  END;
+                ELSE
+                   Grouped[i] := TRUE;
+                   INC(groups);
+                END;
+            | WaStruct (str) => 
+                Grouped[i] := TRUE;
+                INC(groups);
+            | WaSig (sig)    => 
+                Grouped[i] := TRUE;
+                INC(groups);
+            ELSE
+              <* ASSERT FALSE *>
+            END;
+          END;
         END;
+        RETURN groups;
+      END countGroups;
+
+    PROCEDURE makeGroup(Comp : REF ARRAY OF WaComp; Grouped : REF ARRAY OF BOOLEAN; numComps : INTEGER) : REF BldGroup =
+      VAR
+        bldGroup := NEW(REF BldGroup, numComps := 0, Comp := NIL, heapType := NIL);
+        g   : INTEGER := -1;
+        idx : INTEGER := 0;
+      BEGIN
+        (* Find a build group *)
+        FOR i := 0 TO numComps-1 DO
+          IF g < 0 THEN
+            (* Find the first member of a group *)
+            IF NOT Grouped[i] THEN
+              Grouped[i] := TRUE;
+              g := Comp[i].bldGrp;
+              bldGroup.numComps := 1;
+            END;
+          ELSIF Comp[i].bldGrp = g THEN
+            (* This comp is in the build group, mark it *)
+            Grouped[i] := TRUE;
+            INC(bldGroup.numComps);
+          END;
+        END;
+
+        <* ASSERT g >= 0 *>
+
+        (* gather the build group elements *)
+        bldGroup.Comp     := NEW(REF ARRAY OF WaComp, bldGroup.numComps);
+        FOR i := 0 TO numComps-1 DO
+          IF Comp[i].bldGrp = g THEN
+            bldGroup.Comp[idx] := Comp[i];
+            INC(idx);
+          END;
+        END;
+
+        RETURN bldGroup;
+      END makeGroup;
+
+    PROCEDURE buildAll(VAR group : BldGroup; numGroups : INTEGER; rec : REF ARRAY OF REF BldGroup) =
+      VAR
+        bld     : WASM.BuilderRef;
+        cmpName : TEXT;
+        cmpStr  : Ctypes.char_star;
+        fld     : WaField;
+        fldName : TEXT;
+        fldAttr : TEXT;
+        fldStr  : Ctypes.char_star;
+        bldOK   : BOOLEAN;
+        errIdx  : WASM.Index;
+        errRsn  : WASM.BuilderError;
+        N       : CARDINAL;
+        litN    := NEW(REF WASM.Literal);
+        sizeN   : WASM.ExpressionRef;
+        cmpNew  : WASM.ExpressionRef;
+        numElem : INTEGER;
+      BEGIN
+        self.Trace("ModCompos.buildAll ", Fmt.Int(numGroups));
+        bld := WASM.BuilderCreate(group.numComps);
+        (* Create the recursive groups *)
+        numElem := 0;
+        FOR g := 0 TO numGroups-1 DO
+          (* Copy the group *)
+          FOR i := 0 TO rec[g].numComps-1 DO
+            group.Comp[numElem + i] := rec[g].Comp[i];
+          END;
+          (* Tell the builder about it *)
+          WASM.BuilderRecGroup(bld, numElem, rec[g].numComps);
+          self.Trace("  RecGroup ", Fmt.Int(g), " start=", Fmt.Int(numElem), " len=", Fmt.Int(rec[g].numComps));
+          INC(numElem, rec[g].numComps);
+        END;
+
+        FOR i := 0 TO group.numComps-1 DO
+          TYPECASE group.Comp[i] OF
+          | WaArray (arr)  =>
+              (* Build descriptor for array *)
+              IF arr.ofComp # NIL THEN
+                (* the element is a composite ref - use its interim type *)
+                fldType[0] := arr.ofComp.wType;
+                fldPack[0] := WPACK_not;
+              ELSE
+                fldType[0] := arr.element.type;
+                fldPack[0] := arr.element.pack;
+              END;
+              cmpName := Typelabel(arr);
+              self.Trace("  Array ", cmpName, " OF ", Typelabel(arr.element), " comp=", Fmt.Bool(arr.ofComp # NIL), eol := FALSE);
+              self.Trace(" type=", Fmt.Int(fldType[0]), " pack=", Fmt.Int(fldPack[0]), " idx=", Fmt.Int(i));
+
+              WASM.BuilderSetArray(bld, i, fldType[0], fldPack[0], 1 (*mutable*));
+
+              (* set builder interim types in case needed *)
+              arr.heap  := WASM.BuilderGetTempHeapType(bld, i);
+              arr.wType := WASM.BuilderGetTempRefType(bld, arr.heap, 1);
+
+          | WaStruct (str) =>
+              (* Build descriptor for structure *)
+              cmpName := Typelabel(str);
+              self.Trace("  Struct ", cmpName, " idx=", Fmt.Int(i));
+              numElem := str.numFields;
+              FOR f := 0 TO numElem-1 DO
+                fld     := str.fields[f];
+                fldName := Typelabel(fld);
+                fldStr  := Cstar(fldName);
+                fldAttr := " size=" & Fmt.Int(fld.size) & " offset="
+                         & Fmt.Int(fld.offset) & " typeid=" & M3IR.FormatUID(fld.typeid)
+                         & " wtype=" & Fmt.Int(fld.type) & " pack=" & Fmt.Int(fld.pack);
+                self.Trace("    field=", fldName, fldAttr);
+
+                IF fld.comp # NIL THEN
+                  (* the field is, itself, a composite ref - use its interim type *)
+                  fldType[f] := fld.comp.wType;
+                  fldPack[f] := WPACK_not;
+                ELSE
+                  fldType[f] := fld.type;
+                  fldPack[f] := fld.pack;
+                END;
+                fldMut[f]  := VAL(1, CHAR);
+              END;
+
+              WASM.BuilderSetStruct(bld, i, fldType, fldPack, fldMut, numElem);
+
+              (* set builder interim types in case needed *)
+              str.heap  := WASM.BuilderGetTempHeapType(bld, i);
+              str.wType := WASM.BuilderGetTempRefType(bld, str.heap, 1);
+
+          | WaSig (sig)    =>
+              cmpName := Typelabel(sig);
+              self.Trace("  Sig ", cmpName, " idx=", Fmt.Int(i));
+          ELSE
+            <* ASSERT FALSE *>
+          END;
+        END;
+
+        (* Register the composite types *)
+        bldOK := WASM.BuilderBuildAndDispose(bld, group.heapType, errIdx, errRsn);
+        IF bldOK THEN
+            self.Trace("ModCompos build successful.")
+        ELSE
+          IO.Put("ModCompos failure idx=" & Fmt.Int(errIdx) & " reason=" & Fmt.Int(errRsn) & Wr.EOL)
+        END;
+
+        <*ASSERT self.prolog # NIL *>
+
+        FOR i := 0 TO group.numComps-1 DO
+          TYPECASE group.Comp[i] OF
+          | WaArray (arr)  =>
+              (* Array name *)
+              cmpName := Typelabel(arr);
+              cmpStr  := Cstar(cmpName);
+              WASM.ModuleSetTypeName(self.moduleRef, group.heapType[i], cmpStr);
+
+              (* save the built types *)
+              arr.heap  := group.heapType[i];
+              arr.wType := WASM.TypeFromHeap(arr.heap, TRUE (*nullable*));
+
+              (* reference a new array of this type *)
+              IF arr.fixed # NIL THEN N := arr.fixed.number;
+                                 ELSE N := 3; (* open, pick any value *)
+                                 END;
+
+              self.Trace("ModCompos array/new ", cmpName, " type=", Fmt.Int(arr.wType), " N=", Fmt.Int(N));
+
+              litN^  := WASM.LiteralInt32(N);
+              sizeN  := WASM.Const(self.moduleRef, litN);
+              cmpNew := WASM.Drop(self.moduleRef, 
+                              WASM.ArrayNew(self.moduleRef, arr.heap, sizeN, NIL));
+              WASM.BlockInsertChildAt(self.prolog.entryBB, 0, cmpNew);
+
+
+          | WaStruct (str) =>
+              (* Structure names  *)
+              cmpName := Typelabel(str);
+              cmpStr  := Cstar(cmpName);
+              WASM.ModuleSetTypeName(self.moduleRef, group.heapType[i], cmpStr);
+              numElem := str.numFields;
+              FOR f := 0 TO numElem-1 DO
+                fld     := str.fields[f];
+                fldName := Typelabel(fld);
+                fldStr  := Cstar(fldName);
+                WASM.ModuleSetFieldName(self.moduleRef, group.heapType[i], f, fldStr);
+               self.Trace("ModCompos name ", cmpName, " -> ", fldName);
+              END;
+
+              (* save the built types *)
+              str.heap  := group.heapType[i];
+              str.wType := WASM.TypeFromHeap(str.heap, TRUE (*nullable*));
+
+
+              (* In declare_procedure we saved the prolog. Add struct.new_default 
+                 expressions to the entry block *)
+              cmpNew := WASM.Drop(self.moduleRef, 
+                                WASM.StructNew(self.moduleRef, NIL, 0, group.heapType[i]));
+              WASM.BlockInsertChildAt(self.prolog.entryBB, 0, cmpNew);
+
+          | WaSig (sig)    =>
+              (* Proctype name *)
+            cmpName := Typelabel(sig);
+            self.Trace("ModCompos sig ", cmpName, " idx=", Fmt.Int(i));
+          ELSE
+            <* ASSERT FALSE *>
+          END;
+        END;
+     END buildAll;
+
+
+  BEGIN
+    self.Trace("ModCompos ", Fmt.Int(numComps));
+    IF numComps > 0 THEN
+      Comp    := NEW(REF ARRAY OF WaComp, numComps);
+      Grouped := NEW(REF ARRAY OF BOOLEAN, numComps);
+    END;
+
+    (* Composite attribute allocation *)
+    FOR i := 0 TO numComps-1 DO
+      Comp[i] := NARROW(Get(self.compStack, i), WaComp);
+      numElem := 0;
+      TYPECASE Comp[i] OF
+      | WaArray (arr)  => arr.bldGrp := i;
+                          numElem    := 1;
+      | WaStruct (str) => str.bldGrp := i;
+                          numElem    := str.numFields;
+      | WaSig (sig)    => sig.bldGrp := i;
+      ELSE
+        <* ASSERT FALSE *>
+      END;
+      IF numElem > fldMax THEN
+        fldMax := numElem;
       END;
     END;
     fldType := NEW (REF ARRAY OF WASM.Type, fldMax);
     fldPack := NEW (REF ARRAY OF WASM.Packed, fldMax);
     fldMut  := NEW (REF ARRAY OF CHAR, fldMax);
 
-    (* Create the builder *)
-    IF numStructs > 0 THEN
-      bld := WASM.BuilderCreate(numStructs);
-      heapType := NEW (REF ARRAY OF WASM.HeapTypeRef, numStructs);
+    (* How many groups? *)
+    groups := countGroups(Comp, Grouped, numComps);
+    self.Trace("  Group count ", Fmt.Int(groups));
+    bldGroup := NEW(REF ARRAY OF REF BldGroup, groups);
+    FOR i := 0 TO numComps-1 DO
+      Grouped[i] := FALSE;
     END;
 
-
-    FOR i := 0 TO numStructs-1 DO
-      (* Build descriptor for structure *)
-      any := Get(self.defStack, i);
-      IF ISTYPE(any, WaStruct) THEN
-        str     := NARROW(any,WaStruct);
-        strName := Typelabel(str);
-        self.Trace("  Struct ", strName);
-        numElem := str.numFields;
-        FOR f := 0 TO numElem-1 DO
-          fld     := str.fields[f];
-          fldName := Typelabel(fld);
-          fldStr  := Cstar(fldName);
-          fldAttr := " size=" & Fmt.Int(fld.size) & " offset="
-                   & Fmt.Int(fld.offset) & " typeid=" & M3IR.FormatUID(fld.typeid)
-                   & " wtype=" & Fmt.Int(fld.type) & " pack=" & Fmt.Int(fld.pack);
-          self.Trace("    field=", fldName, fldAttr);
-
-          fldType[f] := fld.type;
-          fldPack[f] := fld.pack;
-          fldMut[f]  := VAL(1, CHAR);
-        END;
-
-        WASM.BuilderSetStruct(bld, i, fldType, fldPack, fldMut, numElem);
-      END;
+    (* Gather them up *)
+    FOR i := 0 TO groups-1 DO
+      bldGroup[i] := makeGroup(Comp, Grouped, numComps);
     END;
 
-    (* Register the structure types *)
-    IF numStructs > 0 THEN
-      bldOK := WASM.BuilderBuildAndDispose(bld, heapType, errIdx, errRsn);
-      IF bldOK THEN
-        self.Trace("ModStructs build successful.")
-      ELSE
-        IO.Put("ModStructs failure idx=" & Fmt.Int(errIdx) & " reason=" & Fmt.Int(errRsn) & Wr.EOL)
-      END;
-
-      <*ASSERT self.prolog # NIL *>
-      (* Set names for the structures *)
-      FOR i := 0 TO numStructs-1 DO
-        any := Get(self.defStack, i);
-        IF ISTYPE(any, WaStruct) THEN
-          str     := NARROW(any,WaStruct);
-          strName := Typelabel(str);
-          strStr  := Cstar(strName);
-          WASM.ModuleSetTypeName(self.moduleRef, heapType[i], strStr);
-          numElem := str.numFields;
-          FOR f := 0 TO numElem-1 DO
-            fld     := str.fields[f];
-            fldName := Typelabel(fld);
-            fldStr  := Cstar(fldName);
-            WASM.ModuleSetFieldName(self.moduleRef, heapType[i], f, fldStr);
-            self.Trace("ModStructs name ", strName, " -> ", fldName);
-          END;
-
-          (* In declare_procedure we saved the prolog. Add struct.new_default 
-             expressions to the entry block *)
-          strNew := WASM.Drop(self.moduleRef, 
-                            WASM.StructNew(self.moduleRef, NIL, 0, heapType[i]));
-          WASM.BlockInsertChildAt(self.prolog.entryBB, 0, strNew);
-        END;
-      END;
+    (* Validate that none are missed  *)
+    numElem := 0;
+    FOR i := 0 TO groups-1 DO
+      INC(numElem, bldGroup[i].numComps);
     END;
+    <* ASSERT numElem = numComps *>
 
-  END ModStructs;
+    (* actually build them *)
+    all.numComps := numComps;
+    all.Comp     := Comp;
+    all.heapType := NEW(REF ARRAY OF WASM.HeapTypeRef, numComps);
+    buildAll(all, groups, bldGroup);
+
+  END ModCompos;
 
 
 (*------------------------------------------------------ Variable Parsing ---*)
@@ -1767,6 +1969,24 @@ PROCEDURE Typeinit(self: WaDefn; size : BitSize := 0; offset : BitOffset := 0; w
     RETURN self;
   END Typeinit;
 
+PROCEDURE NewField(def : WaDefn; typeid : TypeUID; name : Name; type : WASM.Type := NOTYPE; size : BitSize := 0; offset : BitOffset := 0; pack : WASM.Packed := NOTYPE): WaField =
+  VAR
+    fld := NEW(WaField, typeid := typeid, name := name, type := type, size := size, offset := offset, pack := pack, integral := FALSE);
+  BEGIN
+    TYPECASE def OF
+    WaOrdinal (ord)  => fld.ord := ord;
+    | WaFloat (flt)  => fld.flt := flt;
+    | WaRef (ref)    => fld.ref := ref;
+    | WaArray (arr)  => fld.arr := arr; fld.comp := arr; (* and comp ... *)
+    | WaStruct (str) => fld.str := str; fld.comp := str;
+    | WaSig (sig)    => fld.sig := sig; fld.comp := sig;
+    | WaOpaque (opq) => fld.opq := opq;
+    ELSE
+    <* ASSERT FALSE *>
+    END;
+    RETURN fld;    
+  END NewField;
+
 PROCEDURE NewStruct(self: T; typeid : TypeUID; bit_size: BitSize; numFields, numMethods : INTEGER): WaStruct =
   VAR
     s := NEW (WaStruct, typeid:= typeid, integral := FALSE);
@@ -1828,6 +2048,20 @@ PROCEDURE Typeadd(self: T; def : WaDefn) =
   BEGIN
     EVAL self.defTable.put(def.typeid, def);
   END Typeadd;
+
+PROCEDURE Compadd(self: T; comp : WaComp) =
+  VAR compType : TEXT;
+  BEGIN
+    TYPECASE comp OF
+    | WaArray  => compType := "WaArray";
+    | WaStruct => compType := "WaStruct";
+    | WaSig    => compType := "WaSig";
+    ELSE
+      <* ASSERT FALSE *>
+    END;
+    self.Trace("  Composite typeid=", M3IR.FormatUID(comp.typeid), " ", compType);
+    PushRev(self.compStack, comp);
+  END Compadd;
 
 (*---------------------------------------------------------------- Stacks ---*)
 PROCEDURE Pop(stack : RefSeq.T; n: CARDINAL := 1) =
