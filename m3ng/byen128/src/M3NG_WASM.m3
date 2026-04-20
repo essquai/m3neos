@@ -930,7 +930,8 @@ PROCEDURE declare_indirect(self: T; typeid, target_typeid: TypeUID; <*UNUSED*>ta
 PROCEDURE declare_proctype(self: T; typeid: TypeUID; n_formals: INTEGER; result: TypeUID; n_raises: INTEGER; callingConvention: CallingConvention; <*UNUSED*> result_typename: Name) =
   VAR sig := NewSig(self, typeid := typeid, n_formals := n_formals, result := result, n_raises := n_raises, cc := callingConvention);
   BEGIN
-    self.Trace("declare_proctype ", M3IR.FormatUID(typeid), " n_formals=", Fmt.Int(n_formals), " n_raises=", Fmt.Int(n_raises));
+    self.Trace("declare_proctype ", M3IR.FormatUID(typeid), " n_formals=", Fmt.Int(n_formals), " n_raises=", Fmt.Int(n_raises), eol := FALSE);
+    self.Trace(" result=", Fmt.Int(result));
     self.curSig       := sig;
     self.next_formal  := 0;
     self.next_raise   := 0;
@@ -949,6 +950,7 @@ PROCEDURE declare_formal(self: T; name: Name; typeid: TypeUID; <*UNUSED*> typena
     def := Typedef(self, typeid);
     direct := TRUE;
   BEGIN
+    <* ASSERT self.next_formal < sig.numFields *>
     fld := NewField(def, typeid := typeid, name := name, type := def.type, pack := def.pack);
     fld.integral := def.integral;
     IF fld.ref # NIL THEN direct := NOT fld.ref.indirect; END;
@@ -1029,9 +1031,15 @@ PROCEDURE declare_opaque(self: T; typeid, super_typeid: TypeUID) =
   VAR
     opq := NEW(WaOpaque, typeid := typeid, super := super_typeid, integral := FALSE);
     def := Typedef(self, super_typeid);
+    st  : WASM.Type := NOTYPE;
   BEGIN
     opq.def := def;
-    self.Trace("declare_opaque ", M3IR.FormatUID(typeid), " <: ", M3IR.FormatUID(super_typeid), "def=", Fmt.Bool(def # NIL));
+    IF def # NIL THEN
+      opq.type := def.type;
+      st       := def.type;
+    END;
+    self.Trace("declare_opaque ", M3IR.FormatUID(typeid), " <: ", M3IR.FormatUID(super_typeid), " def=", Fmt.Bool(def # NIL), eol :=FALSE);
+    self.Trace(" supertype=", Fmt.Int(st));
     Typeadd(self, opq);
   END declare_opaque;
 
@@ -1576,10 +1584,10 @@ PROCEDURE ModCompos(self : T) =
                    Grouped[i] := TRUE;
                    INC(groups);
                 END;
-            | WaStruct (str) => 
+            | WaStruct       => 
                 Grouped[i] := TRUE;
                 INC(groups);
-            | WaSig (sig)    => 
+            | WaSig          => 
                 Grouped[i] := TRUE;
                 INC(groups);
             ELSE
@@ -1635,6 +1643,10 @@ PROCEDURE ModCompos(self : T) =
         fldName : TEXT;
         fldAttr : TEXT;
         fldStr  : Ctypes.char_star;
+        def     : WaDefn;
+        result  : WaComp;
+        resType : WASM.Type;
+        parType : WASM.Type;
         bldOK   : BOOLEAN;
         errIdx  : WASM.Index;
         errRsn  : WASM.BuilderError;
@@ -1643,6 +1655,7 @@ PROCEDURE ModCompos(self : T) =
         sizeN   : WASM.ExpressionRef;
         cmpNew  : WASM.ExpressionRef;
         numElem : INTEGER;
+        tuple   : BOOLEAN;
       BEGIN
         self.Trace("ModCompos.buildAll ", Fmt.Int(numGroups));
         bld := WASM.BuilderCreate(group.numComps);
@@ -1714,7 +1727,54 @@ PROCEDURE ModCompos(self : T) =
 
           | WaSig (sig)    =>
               cmpName := Typelabel(sig);
-              self.Trace("  Sig ", cmpName, " idx=", Fmt.Int(i));
+              self.Trace("  Sig ", cmpName, " result=",  M3IR.FormatUID(sig.result), " idx=", Fmt.Int(i));
+              
+              tuple := FALSE;
+              parType := WTYPE_none;
+              resType := WTYPE_none;
+
+              numElem := sig.numFields;
+              FOR f := 0 TO numElem-1 DO
+                fld     := sig.fields[f];
+                fldName := Typelabel(fld);
+                fldAttr := " typeid=" & M3IR.FormatUID(fld.typeid)
+                           & " wtype=" & Fmt.Int(fld.type);
+                self.Trace("    field=", fldName, fldAttr);
+
+                IF fld.comp # NIL THEN
+                  (* the field is, itself, a composite ref - use its interim type *)
+                  fldType[f] := fld.comp.wType;
+                  tuple := TRUE;
+                ELSE
+                  fldType[f] := fld.type;
+                END;
+              END;
+
+              IF numElem > 0 THEN
+                IF tuple THEN
+                  (* the signature includes builder temp types *)
+                  parType := WASM.BuilderGetTempTuple(bld, fldType, numElem);
+                ELSE
+                  (* the signature has no heap types *)
+                  parType := WASM.TypeCreate(fldType, numElem);
+                END;
+              END;
+
+              def := Typedef(self, sig.result);
+              IF def # NIL THEN
+                IF ISTYPE(def, WaComp) THEN
+                  result := NARROW(def, WaComp);
+                  resType := result.wType;
+                ELSE
+                  resType := def.type;
+                END;
+              END;
+
+              WASM.BuilderSetSignature(bld, i, parType, resType);
+
+              (* set builder interim types in case needed *)
+              sig.heap  := WASM.BuilderGetTempHeapType(bld, i);
+              sig.wType := WASM.BuilderGetTempRefType(bld, sig.heap, 1);
           ELSE
             <* ASSERT FALSE *>
           END;
@@ -1747,7 +1807,7 @@ PROCEDURE ModCompos(self : T) =
                                  ELSE N := 3; (* open, pick any value *)
                                  END;
 
-              self.Trace("ModCompos array/new ", cmpName, " type=", Fmt.Int(arr.wType), " N=", Fmt.Int(N));
+              self.Trace("ModCompos arr ", cmpName, " type=", Fmt.Int(arr.wType), " N=", Fmt.Int(N));
 
               litN^  := WASM.LiteralInt32(N);
               sizeN  := WASM.Const(self.moduleRef, litN);
@@ -1767,7 +1827,7 @@ PROCEDURE ModCompos(self : T) =
                 fldName := Typelabel(fld);
                 fldStr  := Cstar(fldName);
                 WASM.ModuleSetFieldName(self.moduleRef, group.heapType[i], f, fldStr);
-               self.Trace("ModCompos name ", cmpName, " -> ", fldName);
+               self.Trace("ModCompos str ", cmpName, " -> ", fldName);
               END;
 
               (* save the built types *)
@@ -1783,8 +1843,15 @@ PROCEDURE ModCompos(self : T) =
 
           | WaSig (sig)    =>
               (* Proctype name *)
-            cmpName := Typelabel(sig);
-            self.Trace("ModCompos sig ", cmpName, " idx=", Fmt.Int(i));
+              cmpName := Typelabel(sig);
+              cmpStr  := Cstar(cmpName);
+              WASM.ModuleSetTypeName(self.moduleRef, group.heapType[i], cmpStr);
+              self.Trace("ModCompos sig ", cmpName, " idx=", Fmt.Int(i));
+
+              (* save the built types *)
+              sig.heap  := group.heapType[i];
+              sig.wType := WASM.TypeFromHeap(sig.heap, TRUE (*nullable*));
+
           ELSE
             <* ASSERT FALSE *>
           END;
@@ -1809,6 +1876,7 @@ PROCEDURE ModCompos(self : T) =
       | WaStruct (str) => str.bldGrp := i;
                           numElem    := str.numFields;
       | WaSig (sig)    => sig.bldGrp := i;
+                          numElem    := sig.numFields;
       ELSE
         <* ASSERT FALSE *>
       END;

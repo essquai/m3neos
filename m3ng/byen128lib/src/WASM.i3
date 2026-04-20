@@ -503,6 +503,13 @@ PROCEDURE BuilderSetStruct(
     elementPackedType : Packed;
     elementMutable : Index);
 
+(* Declare a signature *)
+<*EXTERNAL "TypeBuilderSetSignatureType"*> PROCEDURE BuilderSetSignature(
+    builder : BuilderRef;
+    index : Index;
+    paramTypes: Type;
+    resultTypes : Type);
+
 (* Get interim heap type *)
 <* EXTERNAL "TypeBuilderGetTempHeapType"*> PROCEDURE BuilderGetTempHeapType(
     builder : BuilderRef;
@@ -513,6 +520,21 @@ PROCEDURE BuilderSetStruct(
     builder : BuilderRef;
     heapType : HeapTypeRef;
     nullable : Index) : Type;
+
+(* Get interim tuple type *)
+<*EXTERNAL "TypeBuilderGetTempTupleType"*> PROCEDURE TypeBuilderGetTempTupleType(
+    builder : BuilderRef;
+    types: ADDRESS;
+    numTypes: Index
+): Type;
+
+PROCEDURE BuilderGetTempTuple(
+    builder : BuilderRef;
+    types: REF ARRAY OF Type;
+    numTypes: Index
+): Type;
+
+
 
 (* Register the types *)
 <* EXTERNAL "TypeBuilderBuildAndDispose"*> PROCEDURE TypeBuilderBuildAndDispose(

@@ -85,6 +85,14 @@ PROCEDURE BuilderSetStruct(builder : BuilderRef; index : Index; fieldTypes: REF 
     TypeBuilderSetStructType(builder, index, addrField, addrPacked, addrMutable, numFields);
   END BuilderSetStruct;
 
+(* Interim tuple type *)
+PROCEDURE BuilderGetTempTuple(builder : BuilderRef; types: REF ARRAY OF Type;
+                              numTypes: Index) : Type =
+  BEGIN
+    RETURN TypeBuilderGetTempTupleType(builder, ADR(types^[0]), numTypes);
+  END BuilderGetTempTuple;
+
+
 (* Register the types *)
 PROCEDURE BuilderBuildAndDispose(builder : BuilderRef; heapTypes : REF ARRAY OF HeapTypeRef;
                                  VAR errorIndex : Index; VAR errorReason : BuilderError
