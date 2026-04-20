@@ -1549,8 +1549,9 @@ PROCEDURE ModCompos(self : T) =
     groups  : INTEGER;
     bldGroup: REF ARRAY OF REF BldGroup;
     all     : BldGroup;
+    one     : REF BldGroup := NEW(REF BldGroup);
 
-    PROCEDURE countGroups(Comp : REF ARRAY OF WaComp; Grouped : REF ARRAY OF BOOLEAN; numComps : INTEGER) : INTEGER =
+    <*NOWARN*>PROCEDURE countGroups(Comp : REF ARRAY OF WaComp; Grouped : REF ARRAY OF BOOLEAN; numComps : INTEGER) : INTEGER =
       VAR
         old_groups : INTEGER := 0;
         groups     : INTEGER := numComps;
@@ -1589,7 +1590,7 @@ PROCEDURE ModCompos(self : T) =
         RETURN groups;
       END countGroups;
 
-    PROCEDURE makeGroup(Comp : REF ARRAY OF WaComp; Grouped : REF ARRAY OF BOOLEAN; numComps : INTEGER) : REF BldGroup =
+    <*NOWARN*>PROCEDURE makeGroup(Comp : REF ARRAY OF WaComp; Grouped : REF ARRAY OF BOOLEAN; numComps : INTEGER) : REF BldGroup =
       VAR
         bldGroup := NEW(REF BldGroup, numComps := 0, Comp := NIL, heapType := NIL);
         g   : INTEGER := -1;
@@ -1818,7 +1819,7 @@ PROCEDURE ModCompos(self : T) =
     fldType := NEW (REF ARRAY OF WASM.Type, fldMax);
     fldPack := NEW (REF ARRAY OF WASM.Packed, fldMax);
     fldMut  := NEW (REF ARRAY OF CHAR, fldMax);
-
+(*
     (* How many groups? *)
     groups := countGroups(Comp, Grouped, numComps);
     self.Trace("  Group count ", Fmt.Int(groups));
@@ -1838,11 +1839,21 @@ PROCEDURE ModCompos(self : T) =
       INC(numElem, bldGroup[i].numComps);
     END;
     <* ASSERT numElem = numComps *>
+*)
 
     (* actually build them *)
     all.numComps := numComps;
     all.Comp     := Comp;
     all.heapType := NEW(REF ARRAY OF WASM.HeapTypeRef, numComps);
+
+    groups       := 1;
+    bldGroup := NEW(REF ARRAY OF REF BldGroup, groups);
+    one.numComps := numComps;
+    one.Comp     := NEW(REF ARRAY OF WaComp, numComps);
+    FOR i := 0 TO numComps-1 DO
+      one.Comp[i] := Comp[i];
+    END;
+    bldGroup[0]  := one;
     buildAll(all, groups, bldGroup);
 
   END ModCompos;
