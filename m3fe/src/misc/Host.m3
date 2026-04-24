@@ -13,7 +13,7 @@ IMPORT File, Text, (*ETimer, M3Timers,*) M3ID, M3Compiler;
 
 PROCEDURE Initialize (READONLY options: ARRAY OF TEXT): BOOLEAN =
   BEGIN
-    verbose              := FALSE;
+    verbose              := TRUE;
     errorDie             := -1;
     warnings             := 2;
     coverage             := FALSE;

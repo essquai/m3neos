@@ -41,6 +41,8 @@ TYPE (* see M3IR for the interpretation of these types *)
   RuntimeError = M3IR.RuntimeError;
   CallingConvention = M3IR.CallingConvention;
 
+PROCEDURE FormatUID(tUID: TypeUID) : TEXT;
+
 CONST (* see M3IR for the interpretation of these values *)
   No_label  = M3IR.No_label;
 

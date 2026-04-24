@@ -148,6 +148,11 @@ VAR
 VAR (*CONST*)
   StackType   : ARRAY Type OF Type;
 
+PROCEDURE FormatUID(tUID: TypeUID) : TEXT =
+  BEGIN
+    RETURN M3IR.FormatUID(tUID);
+  END FormatUID;
+
 (*---------------------------------------------------------------------------*)
 
 PROCEDURE Init () =

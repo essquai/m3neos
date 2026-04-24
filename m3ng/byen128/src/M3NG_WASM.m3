@@ -47,6 +47,7 @@ REVEAL
                                  declare_procedure or import_procedure. *)
     curLocalOwner : WaProc;   (* Most recent procedure, introduced either
                                  by declare_procedure or begin_procedure. *)
+    next_temp     := 0;       (* temp variable numbers *)
 
     curStruct     : WaStruct; (* Most recent record/object whose ... *)
     next_field    := 0;       (* ... fields are next to gather ... *)
@@ -497,12 +498,38 @@ TYPE
 
 (*-------------------------------------------------------- CG Procedures  ---*)
 
+PROCEDURE next_label(self: T; n: INTEGER := 1): Label =
+  VAR x := self.next_label_id;
+  BEGIN
+    INC (self.next_label_id, n);
+    RETURN x;
+  END next_label;
 
-<*NOWARN*>PROCEDURE next_label(self: T; n: INTEGER := 1): Label = BEGIN RETURN 0; END next_label;
-<*NOWARN*>PROCEDURE import_global(self: T; name: Name; byte_size: ByteSize; alignment: Alignment; type: Type; typeid: TypeUID; typename: Name): Var = BEGIN RETURN NIL; END import_global;
+PROCEDURE import_global(self: T; name: Name; byte_size: ByteSize; alignment: Alignment; type: Type; typeid: TypeUID; <*UNUSED*>typename: Name): Var =
+  BEGIN
+      self.Trace("import_global ", M3ID.ToText(name), " size=", Fmt.Int(byte_size), " typeid=", M3IR.FormatUID(typeid), eol := FALSE);
+      self.Trace(" type=", Fmt.Int(ORD(type)));
+      RETURN NIL;
+  END import_global;
+
 <*NOWARN*>PROCEDURE declare_segment(self: T; name: Name; typeid: TypeUID; is_const: BOOLEAN): Var = BEGIN RETURN NIL; END declare_segment;
-<*NOWARN*>PROCEDURE declare_global(self: T; name: Name; byte_size: ByteSize; alignment: Alignment; type: Type; typeid: TypeUID; exported, inited: BOOLEAN; typename: Name): Var = BEGIN RETURN NIL; END declare_global;
-<*NOWARN*>PROCEDURE declare_constant(self: T; name: Name; byte_size: ByteSize; alignment: Alignment; type: Type; typeid: TypeUID; exported, inited: BOOLEAN; typename: Name): Var = BEGIN RETURN NIL; END declare_constant;
+
+PROCEDURE declare_global(self: T; n: Name; s: ByteSize; a: Alignment; t: Type; typeid: TypeUID; exported, inited: BOOLEAN; <*UNUSED*> typename: Name): Var =
+  VAR
+    v : WaVar := NewVar
+          (self,n,s,a,t,isConst:=FALSE,m3t:=typeid,in_memory:=TRUE,
+           up_level:=FALSE,exported:=exported,inited:=inited,frequency:=M3IR.Likely,
+           varType:=VarType.Global);
+  BEGIN
+    self.Trace("declare_global ", M3ID.ToText(n), " size=", Fmt.Int(s), " typeid=", M3IR.FormatUID(typeid), eol := FALSE);
+    self.Trace(" type=", Target.TypeNames[t]);
+    RETURN v;
+  END declare_global;
+
+<*NOWARN*>PROCEDURE declare_constant(self: T; name: Name; byte_size: ByteSize; alignment: Alignment; type: Type; typeid: TypeUID; exported, inited: BOOLEAN; typename: Name): Var =
+  BEGIN
+    <* ASSERT FALSE *>
+  END declare_constant;
 
 PROCEDURE declare_local
   (self: T;  n: Name;  s: ByteSize;  a: Alignment; t: Type;  m3t: TypeUID;
@@ -625,8 +652,16 @@ PROCEDURE declare_param (self: T;  n: Name;  s: ByteSize;  a: Alignment; t: Type
     RETURN v;
   END declare_param;
 
-
-<*NOWARN*>PROCEDURE declare_temp(self: T; byte_size: ByteSize; alignment: Alignment; type: Type; in_memory: BOOLEAN; typename: Name): Var = BEGIN RETURN NIL; END declare_temp;
+PROCEDURE declare_temp(self: T; byte_size: ByteSize; alignment: Alignment; type: Type;
+ in_memory: BOOLEAN; typename: Name): Var =
+   VAR name : TEXT;
+   BEGIN
+     (* local variable, no typeUID, not up_levelled, likely accessed *)
+     INC(self.next_temp);
+     name := "TMP_" & Fmt.Int(self.next_temp);
+     self.Trace("declare_temp ", name);
+     RETURN declare_local(self, M3ID.Add(name), byte_size, alignment, type, M3IR.NO_UID, in_memory, FALSE, M3IR.Likely, typename);
+   END declare_temp;
 
 PROCEDURE import_procedure (self: T;  n: Name;  n_params: INTEGER;
                             return_type: Type;  cc: CallingConvention;

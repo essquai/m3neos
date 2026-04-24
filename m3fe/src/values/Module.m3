@@ -13,7 +13,7 @@ IMPORT Variable, Type, Procedure, Ident, M3Buf, BlockStmt, Int;
 IMPORT Host, Token, Revelation, Coverage, Decl, Scanner;
 IMPORT ProcBody, Target, M3RT, Marker, File, Tracer, Wr;
 IMPORT Jmpbufs;
-
+IMPORT RTIO;
 FROM Scanner IMPORT GetToken, Fail, Match, MatchID, cur;
 
 TYPE
@@ -54,6 +54,8 @@ REVEAL
         alloca       : IR.Proc := NIL;
         setjmp       : IR.Proc := NIL;
         jmpbufs      : Jmpbufs.Proc;
+      METHODS
+        emit_globals() := EmitGlobals;
       OVERRIDES
         typeCheck   := TypeCheckMethod;
         set_globals := ValueRep.NoInit;
@@ -698,7 +700,8 @@ PROCEDURE TypeCheck (t: T;  main: BOOLEAN;  VAR cs: Value.CheckState) =
 
     Error.Count (n_errs, n_warns);
     IF (n_errs > n_initial_errs) THEN t.has_errors := TRUE; END;
-
+RTIO.PutText("Module.Typecheck\n");
+RTIO.Flush();
     SetGlobals (t);
     Scanner.in_main := save_main;
     EVAL Switch (save);
@@ -771,6 +774,43 @@ PROCEDURE Allocate (size, align: INTEGER;  is_const : BOOLEAN;
 
     RETURN offset;
   END Allocate;
+
+PROCEDURE EmitGlobals (t: T) =
+  (* Generate global variable declarations for this module. *)
+  VAR
+    v := Scope.ToList (t.localScope);
+    gvar : Variable.T;
+    gname : M3ID.T;
+    gtype : Type.T;
+    ginfo : Type.Info;
+    global : BOOLEAN;
+    indirect : BOOLEAN;
+    lhs : BOOLEAN;
+    typeuid : IR.TypeUID;
+  BEGIN
+    IF (t.has_errors) THEN (*don't bother *) RETURN END;
+    IR.Comment (-1, FALSE, "module variables for ", DataName(t));
+    Type.BeginSetGlobals ();
+    WHILE (v # NIL) DO
+      IF ISTYPE(v, Variable.T) THEN
+        gvar := NARROW(v, Variable.T);
+        Variable.Split(gvar, gtype, global, indirect, lhs);
+        IF global THEN
+          EVAL Type.CheckInfo(gtype, ginfo);
+          gname := Value.CName(v);
+          typeuid := Type.GlobalUID(gtype);
+          IR.Comment (-1, FALSE, "name ", M3ID.ToText(gname), " ", IR.FormatUID(typeuid));
+          EVAL IR.Declare_global (n := gname,  s := ginfo.size,  a := ginfo.alignment,
+                          t := ginfo.mem_type, m3t := typeuid,  exported := FALSE,
+                          init:= TRUE);
+        END;
+      END;
+      Type.SetGlobals (v.origin);
+      Value.SetGlobals (v);  v := v.next;
+    END;
+    Type.SetGlobals (LAST (INTEGER));
+  END EmitGlobals;
+
 
 VAR load_map := ARRAY BOOLEAN (*is_const*) OF M3Buf.T { NIL, NIL };
 CONST Pads = ARRAY [0..5] OF TEXT { "", " ", "  ", "   ", "    ", "     " };
@@ -932,6 +972,7 @@ PROCEDURE Compile (t: T) =
       DeclareGlobalData (t);
       IF (t.body # NIL) THEN EmitDecl (t.body); END;
       Type.CompileAll ();
+      EmitGlobals(t);
       IF (t.interface)
         THEN CompileInterface (t);
         ELSE CompileModule (t);
