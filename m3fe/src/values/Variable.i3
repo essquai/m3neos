@@ -38,6 +38,10 @@ PROCEDURE CopyOpenArray (tipe: Type.T;  ref: Type.T);
 PROCEDURE SetBounds (t: T;  READONLY min, max: Target.Int);
 PROCEDURE GetBounds (t: T;  VAR min, max: Target.Int);
 
+(* Ensures a global variable exists - or doesn't *)
+PROCEDURE MakeOnce(t: T; inMain: BOOLEAN);
+PROCEDURE MakeNone(t: T);
+
 PROCEDURE Load       (t: T);
 PROCEDURE LoadLValue (t: T);
 PROCEDURE SetLValue  (t: T);

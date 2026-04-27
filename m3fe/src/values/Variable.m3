@@ -17,6 +17,7 @@ IMPORT Decl, Null, Int, LInt, Fmt, Procedure, Tracer;
 IMPORT Expr, IntegerExpr, ArrayExpr, TextExpr, NamedExpr;
 IMPORT Type, OpenArrayType, ErrType, TipeMap;
 IMPORT RTIO, RTParams;
+IMPORT Scanner;
 FROM Scanner IMPORT GetToken, Match, cur;
 
 VAR debug := FALSE;
@@ -43,6 +44,7 @@ REVEAL
         bounds      : BoundPair := NIL;
         cg_var      : IR.Var    := NIL; (* Used if it's a local, formal, or external. *)
         bss_var     : IR.Var    := NIL; (* Used if it's a global. *)
+        once_var    : IR.Var    := NIL; (* Module variable *)
         nextTWACGVar : T; (* Link field for list of Variable.Ts that have a
                              non-NIL bss_var or cg_var. *)
         initValOffset : INTEGER := 0;
@@ -405,6 +407,7 @@ PROCEDURE Load (t: T) =
       IF (t.bss_var # NIL) THEN
         IR.Load_addr_of (t.bss_var, 0, t.cg_align);
       ELSIF (t.cg_var = NIL) THEN (* => global *)
+        MakeOnce(t, FALSE);
         Module.LoadGlobalAddr (Scope.ToUnit (t), t.offset, is_const := FALSE);
         IR.Boost_addr_alignment (t.cg_align);
       ELSIF (t.indirect) THEN
@@ -419,6 +422,7 @@ PROCEDURE Load (t: T) =
         IR.Load
           (t.bss_var, 0, t.size, t.cg_align, type_info.alignment, t.stk_type);
       ELSIF (t.cg_var = NIL) THEN (* => global *)
+        MakeOnce(t, FALSE);
         Module.LoadGlobalAddr (Scope.ToUnit (t), t.offset, is_const := FALSE);
         IF (t.indirect) THEN
           IR.Load_indirect (IR.Type.Addr, 0, Target.Address.size);
@@ -450,6 +454,7 @@ PROCEDURE LoadLValue (t: T) =
     IF (t.bss_var # NIL) THEN
       IR.Load_addr_of (t.bss_var, 0, type_info.alignment);
     ELSIF (t.cg_var = NIL) THEN (* => global variable *)
+      MakeOnce(t, FALSE);
       Module.LoadGlobalAddr (Scope.ToUnit (t), t.offset, is_const := FALSE);
       IF (t.indirect) THEN
         IR.Load_indirect (IR.Type.Addr, 0, Target.Address.size);
@@ -512,6 +517,48 @@ PROCEDURE GetBounds (t: T;  VAR min, max: Target.Int) =
     IF TInt.LT (min, xx.min) THEN min := xx.min; END;
     IF TInt.LT (xx.max, max) THEN max := xx.max; END;
   END GetBounds;
+
+PROCEDURE MakeOnce(t: T; inMain: BOOLEAN) =
+  VAR n : M3ID.T; m3t : INTEGER; file : TEXT; line : INTEGER;
+  BEGIN
+    RTIO.PutText("Variable.MakeOnce var=");
+    RTIO.PutInt(ORD(t.once_var # NIL));
+    RTIO.PutText(" ");
+    RTIO.PutText(t.qualName);
+    RTIO.PutText(" inMain=");
+    RTIO.PutInt(ORD(inMain));
+    RTIO.PutText(" ");
+    Scanner.LocalHere(file, line);
+    RTIO.PutText(file);
+    RTIO.PutText(" ");
+    RTIO.PutInt(line);
+    RTIO.PutText("\n");
+    RTIO.Flush();
+
+    IF t.once_var # NIL OR NOT t.global THEN RETURN; END;
+    n    := M3ID.Add(t.qualName);
+    m3t  := Type.GlobalUID(t.type);
+    IF inMain THEN
+      t.once_var := IR.Declare_global (n := n,  s := t.size,  a := t.align,
+                          t := t.mem_type, m3t := m3t,  exported := FALSE,
+                          init:= TRUE);
+    ELSE
+      t.once_var := IR.Import_global (n, t.size, t.align, t.mem_type, m3t, M3ID.NoID);
+    END;
+  END MakeOnce;
+
+PROCEDURE MakeNone(t: T) =
+  BEGIN
+    RTIO.PutText("Variable.MakeNone var=");
+    RTIO.PutInt(ORD(t.once_var # NIL));
+    RTIO.PutText(" ");
+    RTIO.PutText(t.qualName);
+    RTIO.PutText("\n");
+    RTIO.Flush();
+
+    t.once_var := NIL;
+  END MakeNone;
+
 
 (* Externally dispatched-to *)
 PROCEDURE AllocGlobalVarSpace (t: T) =

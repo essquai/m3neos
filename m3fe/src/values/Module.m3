@@ -54,8 +54,6 @@ REVEAL
         alloca       : IR.Proc := NIL;
         setjmp       : IR.Proc := NIL;
         jmpbufs      : Jmpbufs.Proc;
-      METHODS
-        emit_globals() := EmitGlobals;
       OVERRIDES
         typeCheck   := TypeCheckMethod;
         set_globals := ValueRep.NoInit;
@@ -700,8 +698,6 @@ PROCEDURE TypeCheck (t: T;  main: BOOLEAN;  VAR cs: Value.CheckState) =
 
     Error.Count (n_errs, n_warns);
     IF (n_errs > n_initial_errs) THEN t.has_errors := TRUE; END;
-RTIO.PutText("Module.Typecheck\n");
-RTIO.Flush();
     SetGlobals (t);
     Scanner.in_main := save_main;
     EVAL Switch (save);
@@ -775,41 +771,55 @@ PROCEDURE Allocate (size, align: INTEGER;  is_const : BOOLEAN;
     RETURN offset;
   END Allocate;
 
-PROCEDURE EmitGlobals (t: T) =
+PROCEDURE MakeVars (t: T) =
   (* Generate global variable declarations for this module. *)
   VAR
     v := Scope.ToList (t.localScope);
     gvar : Variable.T;
     gname : M3ID.T;
-    gtype : Type.T;
-    ginfo : Type.Info;
-    global : BOOLEAN;
-    indirect : BOOLEAN;
-    lhs : BOOLEAN;
-    typeuid : IR.TypeUID;
   BEGIN
+    RTIO.PutText("Module.MakeVars ")  ;
+    RTIO.PutText(DataName(t));
+    RTIO.PutText("\n");
     IF (t.has_errors) THEN (*don't bother *) RETURN END;
-    IR.Comment (-1, FALSE, "module variables for ", DataName(t));
-    Type.BeginSetGlobals ();
+    IR.Comment (-1, FALSE, "MakeVars for ", DataName(t));
     WHILE (v # NIL) DO
+      gname := Value.CName(v);
       IF ISTYPE(v, Variable.T) THEN
         gvar := NARROW(v, Variable.T);
-        Variable.Split(gvar, gtype, global, indirect, lhs);
-        IF global THEN
-          EVAL Type.CheckInfo(gtype, ginfo);
-          gname := Value.CName(v);
-          typeuid := Type.GlobalUID(gtype);
-          IR.Comment (-1, FALSE, "name ", M3ID.ToText(gname), " ", IR.FormatUID(typeuid));
-          EVAL IR.Declare_global (n := gname,  s := ginfo.size,  a := ginfo.alignment,
-                          t := ginfo.mem_type, m3t := typeuid,  exported := FALSE,
-                          init:= TRUE);
-        END;
+        Variable.MakeOnce(gvar, TRUE);
+        IR.Comment (-1, FALSE, "modvar once ", M3ID.ToText(gname));
+      ELSE
+        IR.Comment (-1, FALSE, "value ", M3ID.ToText(gname));
       END;
       Type.SetGlobals (v.origin);
       Value.SetGlobals (v);  v := v.next;
     END;
     Type.SetGlobals (LAST (INTEGER));
-  END EmitGlobals;
+  END MakeVars;
+
+PROCEDURE DisposeVars (t: T) =
+  (* Reset variable declarations for this module. *)
+  VAR
+    v := Scope.ToList (t.localScope);
+    gvar : Variable.T;
+    gname : M3ID.T;
+  BEGIN
+    RTIO.PutText("Module.DisposeVars ")  ;
+    RTIO.PutText(DataName(t));
+    RTIO.PutText("\n");
+    IF (t.has_errors) THEN (*don't bother *) RETURN END;
+    WHILE (v # NIL) DO
+      gname := Value.CName(v);
+      IF ISTYPE(v, Variable.T) THEN
+        gvar := NARROW(v, Variable.T);
+        Variable.MakeNone(gvar);
+      END;
+      Type.SetGlobals (v.origin);
+      Value.SetGlobals (v);  v := v.next;
+    END;
+    Type.SetGlobals (LAST (INTEGER));
+  END DisposeVars;
 
 
 VAR load_map := ARRAY BOOLEAN (*is_const*) OF M3Buf.T { NIL, NIL };
@@ -972,7 +982,7 @@ PROCEDURE Compile (t: T) =
       DeclareGlobalData (t);
       IF (t.body # NIL) THEN EmitDecl (t.body); END;
       Type.CompileAll ();
-      EmitGlobals(t);
+      MakeVars(t);
       IF (t.interface)
         THEN CompileInterface (t);
         ELSE CompileModule (t);
@@ -987,6 +997,10 @@ PROCEDURE Compile (t: T) =
       IR.End_unit ();
     Scope.Pop (zz);
     Revelation.Pop (yy);
+    (* Clean module variables for this module and co-requisites *)
+    DisposeVars(t);
+    EVAL Switch(t);
+    VisitImports(DisposeVars);
     EVAL Switch (save);
     (* ETimer.Pop (); *)
   END Compile;
@@ -1075,8 +1089,20 @@ PROCEDURE GlobalData (is_const: BOOLEAN): IR.Var =
 
 PROCEDURE LoadGlobalAddr (t: T;  offset: INTEGER;  is_const: BOOLEAN) =
 (* PRE: t = Current () OR NOT is_const. *)
-
+  VAR file : TEXT; line : INTEGER;
   BEGIN
+  RTIO.PutText("Module.LoadGlobalAddr ");
+  Scanner.LocalHere(file, line);
+  RTIO.PutText(file);
+  RTIO.PutText(" ");
+  RTIO.PutInt(line);
+  RTIO.PutText(" ");
+  RTIO.PutInt(offset);
+  RTIO.PutText(" ");
+  RTIO.PutText(DataName(t));
+  RTIO.PutText("\n");
+  RTIO.Flush();
+
     <*ASSERT t.compile_age >= compile_age*>
     IF (t = curModule) THEN
       IR.Load_addr_of (t.globals[is_const].seg, offset, IR.Max_alignment);

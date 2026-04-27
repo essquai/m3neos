@@ -505,11 +505,16 @@ PROCEDURE next_label(self: T; n: INTEGER := 1): Label =
     RETURN x;
   END next_label;
 
-PROCEDURE import_global(self: T; name: Name; byte_size: ByteSize; alignment: Alignment; type: Type; typeid: TypeUID; <*UNUSED*>typename: Name): Var =
+PROCEDURE import_global(self: T; n: Name; s: ByteSize; a: Alignment; t: Type; typeid: TypeUID; <*UNUSED*>typename: Name): Var =
+  VAR
+    v : WaVar := NewVar
+          (self,n,s,a,t,isConst:=FALSE,m3t:=typeid,in_memory:=TRUE,
+           up_level:=FALSE,exported:=FALSE,inited:=TRUE,frequency:=M3IR.Always,
+           varType:=VarType.Global);
   BEGIN
-      self.Trace("import_global ", M3ID.ToText(name), " size=", Fmt.Int(byte_size), " typeid=", M3IR.FormatUID(typeid), eol := FALSE);
-      self.Trace(" type=", Fmt.Int(ORD(type)));
-      RETURN NIL;
+    self.Trace("import_global ", M3ID.ToText(n), " size=", Fmt.Int(s), " typeid=", M3IR.FormatUID(typeid), eol := FALSE);
+    self.Trace(" type=", Target.TypeNames[t]);
+    RETURN v;
   END import_global;
 
 <*NOWARN*>PROCEDURE declare_segment(self: T; name: Name; typeid: TypeUID; is_const: BOOLEAN): Var = BEGIN RETURN NIL; END declare_segment;
