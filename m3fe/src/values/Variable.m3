@@ -540,7 +540,7 @@ PROCEDURE MakeOnce(t: T; inMain: BOOLEAN) =
     m3t  := Type.GlobalUID(t.type);
     IF inMain THEN
       t.once_var := IR.Declare_global (n := n,  s := t.size,  a := t.align,
-                          t := t.mem_type, m3t := m3t,  exported := FALSE,
+                          t := t.mem_type, m3t := m3t,  exported := TRUE,
                           init:= TRUE);
     ELSE
       t.once_var := IR.Import_global (n, t.size, t.align, t.mem_type, m3t, M3ID.NoID);

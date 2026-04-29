@@ -721,6 +721,18 @@ PROCEDURE Block(
     value: ExpressionRef
 ): ExpressionRef;
 
+
+(* ============================================================================
+ * Expression Creation - References
+ * ============================================================================ *)
+
+(* Null *)
+<*EXTERNAL "BinaryenRefNull"*> PROCEDURE RefNull(
+    module: ModuleRef;
+    type: Type
+): ExpressionRef;
+
+
 (* ============================================================================
  * Expression Creation - Memory Operations
  * ============================================================================ *)

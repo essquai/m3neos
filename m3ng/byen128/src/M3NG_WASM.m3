@@ -62,7 +62,8 @@ REVEAL
 
     procStack     : RefSeq.T := NIL;
     modStack      : RefSeq.T := NIL;    (* imported modules *)
-    compStack     : RefSeq.T := NIL;    (* track the trash  *)
+    compStack     : RefSeq.T := NIL;    (* track composites *)
+    globStack     : RefSeq.T := NIL;    (* module variables *)
     defTable      : IntRefTbl.T := NIL; (* type definitions *)
 
     prolog        : WaProc := NIL; (* unit start procedure  *)
@@ -281,6 +282,9 @@ VAR
   WDEF_Max64  : INTEGER;
   WDEF_Max64U : INTEGER;
 
+  M3JumpBufSize : M3ID.T;
+  M3Alloca      : M3ID.T;
+
 (*--------------------------------------------------------- Parse Objects ---*)
 TYPE
   Predeclared = M3FEBuiltin.Kind;
@@ -296,6 +300,8 @@ TYPE
     ofs : INTEGER; (* offset from frame pointer - for stack walker *)
     varType : VarType;
     m3t : TypeUID;
+    def : WaDefn; (* expanded type declaration *)
+    mod : M3ID.T := M3ID.NoID;
     frequency : Frequency;
     inProc : WaProc;  (* owning procedure *)
     waIndex : WASM.Index;  (* wasm Local/Param number *)
@@ -507,13 +513,19 @@ PROCEDURE next_label(self: T; n: INTEGER := 1): Label =
 
 PROCEDURE import_global(self: T; n: Name; s: ByteSize; a: Alignment; t: Type; typeid: TypeUID; <*UNUSED*>typename: Name): Var =
   VAR
-    v : WaVar := NewVar
-          (self,n,s,a,t,isConst:=FALSE,m3t:=typeid,in_memory:=TRUE,
-           up_level:=FALSE,exported:=FALSE,inited:=TRUE,frequency:=M3IR.Always,
-           varType:=VarType.Global);
+    v : WaVar;
   BEGIN
     self.Trace("import_global ", M3ID.ToText(n), " size=", Fmt.Int(s), " typeid=", M3IR.FormatUID(typeid), eol := FALSE);
     self.Trace(" type=", Target.TypeNames[t]);
+
+    (* m3_jmpbuf not used here *)
+    IF n = M3JumpBufSize THEN RETURN NIL END;
+
+    v := NewVar
+          (self,n,s,a,t,isConst:=FALSE,m3t:=typeid,in_memory:=TRUE,
+           up_level:=FALSE,exported:=FALSE,inited:=TRUE,frequency:=M3IR.Always,
+           varType:=VarType.Global);
+    Globaladd(self, v);
     RETURN v;
   END import_global;
 
@@ -528,6 +540,8 @@ PROCEDURE declare_global(self: T; n: Name; s: ByteSize; a: Alignment; t: Type; t
   BEGIN
     self.Trace("declare_global ", M3ID.ToText(n), " size=", Fmt.Int(s), " typeid=", M3IR.FormatUID(typeid), eol := FALSE);
     self.Trace(" type=", Target.TypeNames[t]);
+
+    Globaladd(self, v);
     RETURN v;
   END declare_global;
 
@@ -673,7 +687,7 @@ PROCEDURE import_procedure (self: T;  n: Name;  n_params: INTEGER;
                             <*UNUSED*>returnTypeid : TypeUID;
                             <*UNUSED*>returnTypename : Name): Proc =
   VAR
-    p : WaProc := NewProc(self,n,n_params,return_type,-1,cc,FALSE,NIL);
+    p : WaProc;
     name : TEXT;
     pfx  : TEXT;
     mod  : WaMod;
@@ -684,7 +698,10 @@ PROCEDURE import_procedure (self: T;  n: Name;  n_params: INTEGER;
            AND for "alloca" ... ?
        The first one represents the "interface" procedure, ignore it
        The second occurs after an import_unit, and needs parameters
-       The third one is an artifact of the C backend ? *)
+       The third one allocates m3_jmpbuf - for exception treatment? not used *)
+    (* IF n = M3Alloca THEN RETURN NIL END; *)
+
+    p := NewProc(self,n,n_params,return_type,-1,cc,FALSE,NIL);
     p.imported := TRUE;
     (* Don't need local stack or an up-level since its imported, but need a
        paramstack. *)
@@ -1351,7 +1368,8 @@ PROCEDURE module_write(t: T; binFileName, textFileName: TEXT) : INTEGER =
     t.Trace("module_write");
 
     ModImports(t);
-    ModCompos(t);
+    ModComposites(t);
+    ModGlobals(t); (* After Composites - they can *be* composites *)
     IF WASM.ModuleValidate(t.moduleRef) = 1 THEN
       t.Trace("Module validation successful.")
     ELSE
@@ -1411,6 +1429,7 @@ PROCEDURE New(WasmDebug : BOOLEAN; GenDebug: BOOLEAN) : T =
     t.modStack      := NEW(RefSeq.T).init();
     t.debugLexStack := NEW(RefSeq.T).init();
     t.compStack     := NEW(RefSeq.T).init();
+    t.globStack     := NEW(RefSeq.T).init();
     t.defTable      := NEW(IntRefTbl.Default).init(sizeHint := 20);
 
     (* Construct the pre-declared types from the front end *)
@@ -1488,13 +1507,17 @@ PROCEDURE ModUnderscores(n : TEXT) : INTEGER =
     len := Text.Length(n);
     rep := FALSE;
     usi : INTEGER := -1;
+    c   : CHAR;
   BEGIN
       WHILE usi < 0 AND idx < len DO
-        IF Text.GetChar(n, idx) = '_' THEN
+        c := Text.GetChar(n, idx);
+        IF c = '_' THEN
           IF rep THEN
             usi := idx-1;
           END;
           rep := TRUE;
+        ELSIF c = '.' THEN
+          usi := idx;
         ELSE
           rep := FALSE;
         END;
@@ -1578,13 +1601,58 @@ PROCEDURE ModImports(self : T) =
     END;
   END ModImports;
 
+PROCEDURE ModGlobals(self : T) =
+  VAR
+    numGlobals := self.globStack.size();
+    glbName : TEXT;
+    glbStr : Ctypes.char_star;
+    modStr : Ctypes.char_star;
+    a : REFANY;
+    g : WaVar;
+    comp : WaComp;
+    wType : WASM.Type;
+    value : WASM.ExpressionRef;
+  BEGIN
+    FOR i := 0 TO numGlobals-1 DO
+      a := Get(self.globStack, i);
+      g := NARROW(a,WaVar);
+      glbName := M3ID.ToText(g.name);
+      glbStr  := Cstar(glbName);
+
+      IF g.def = NIL THEN
+        g.def := Typedef(self, g.m3t);
+        self.Trace("  pending typedef ", Fmt.Bool(g.def = NIL));
+        <* ASSERT g.def # NIL *>
+      END;
+
+      wType := g.def.type;
+      IF ISTYPE(g.def, WaComp) THEN
+        comp := NARROW(g.def, WaComp);
+        wType := comp.wType;
+      END;
+
+      IF g.exported THEN
+        (* my export *)
+        self.Trace("ModGlobals export ", glbName);
+        value := Typevalue(self, g.def);
+        EVAL WASM.AddGlobal(self.moduleRef, glbStr, wType, 1, value);
+        EVAL WASM.AddGlobalExport(self.moduleRef, glbStr, glbStr);
+      ELSE
+        (* import *)
+        self.Trace("ModGlobals import ", glbName);
+        modStr := Cstar(M3ID.ToText(g.mod));
+        WASM.AddGlobalImport(self.moduleRef, glbStr, modStr, glbStr, wType, 1);
+      END;
+    END;
+  END ModGlobals;
+
 TYPE BldGroup = RECORD
   numComps : INTEGER;
   Comp     : REF ARRAY OF WaComp;
   heapType : REF ARRAY OF WASM.HeapTypeRef;
 END;
 
-PROCEDURE ModCompos(self : T) =
+PROCEDURE ModComposites(self : T) =
   VAR
     numComps := self.compStack.size();
     Comp    : REF ARRAY OF WaComp;
@@ -1595,7 +1663,7 @@ PROCEDURE ModCompos(self : T) =
     fldPack : REF ARRAY OF WASM.Packed;
     fldMut  : REF ARRAY OF CHAR;
     groups  : INTEGER;
-    bldGroup: REF ARRAY OF REF BldGroup;
+    bldGroups: REF ARRAY OF REF BldGroup;
     all     : BldGroup;
     one     : REF BldGroup := NEW(REF BldGroup);
 
@@ -1697,7 +1765,7 @@ PROCEDURE ModCompos(self : T) =
         numElem : INTEGER;
         tuple   : BOOLEAN;
       BEGIN
-        self.Trace("ModCompos.buildAll ", Fmt.Int(numGroups));
+        self.Trace("ModComposites.buildAll ", Fmt.Int(numGroups));
         bld := WASM.BuilderCreate(group.numComps);
         (* Create the recursive groups *)
         numElem := 0;
@@ -1823,9 +1891,9 @@ PROCEDURE ModCompos(self : T) =
         (* Register the composite types *)
         bldOK := WASM.BuilderBuildAndDispose(bld, group.heapType, errIdx, errRsn);
         IF bldOK THEN
-            self.Trace("ModCompos build successful.")
+            self.Trace("ModComposites build successful.")
         ELSE
-          IO.Put("ModCompos failure idx=" & Fmt.Int(errIdx) & " reason=" & Fmt.Int(errRsn) & Wr.EOL)
+          IO.Put("ModComposites failure idx=" & Fmt.Int(errIdx) & " reason=" & Fmt.Int(errRsn) & Wr.EOL)
         END;
 
         <*ASSERT self.prolog # NIL *>
@@ -1847,7 +1915,7 @@ PROCEDURE ModCompos(self : T) =
                                  ELSE N := 3; (* open, pick any value *)
                                  END;
 
-              self.Trace("ModCompos arr ", cmpName, " type=", Fmt.Int(arr.wType), " N=", Fmt.Int(N));
+              self.Trace("ModComposites arr ", cmpName, " type=", Fmt.Int(arr.wType), " N=", Fmt.Int(N));
 
               litN^  := WASM.LiteralInt32(N);
               sizeN  := WASM.Const(self.moduleRef, litN);
@@ -1867,7 +1935,7 @@ PROCEDURE ModCompos(self : T) =
                 fldName := Typelabel(fld);
                 fldStr  := Cstar(fldName);
                 WASM.ModuleSetFieldName(self.moduleRef, group.heapType[i], f, fldStr);
-               self.Trace("ModCompos str ", cmpName, " -> ", fldName);
+               self.Trace("ModComposites str ", cmpName, " -> ", fldName);
               END;
 
               (* save the built types *)
@@ -1886,7 +1954,7 @@ PROCEDURE ModCompos(self : T) =
               cmpName := Typelabel(sig);
               cmpStr  := Cstar(cmpName);
               WASM.ModuleSetTypeName(self.moduleRef, group.heapType[i], cmpStr);
-              self.Trace("ModCompos sig ", cmpName, " idx=", Fmt.Int(i));
+              self.Trace("ModComposites sig ", cmpName, " idx=", Fmt.Int(i));
 
               (* save the built types *)
               sig.heap  := group.heapType[i];
@@ -1900,7 +1968,7 @@ PROCEDURE ModCompos(self : T) =
 
 
   BEGIN
-    self.Trace("ModCompos ", Fmt.Int(numComps));
+    self.Trace("ModComposites ", Fmt.Int(numComps));
     IF numComps > 0 THEN
       Comp    := NEW(REF ARRAY OF WaComp, numComps);
       Grouped := NEW(REF ARRAY OF BOOLEAN, numComps);
@@ -1955,16 +2023,16 @@ PROCEDURE ModCompos(self : T) =
     all.heapType := NEW(REF ARRAY OF WASM.HeapTypeRef, numComps);
 
     groups       := 1;
-    bldGroup := NEW(REF ARRAY OF REF BldGroup, groups);
+    bldGroups    := NEW(REF ARRAY OF REF BldGroup, groups);
     one.numComps := numComps;
     one.Comp     := NEW(REF ARRAY OF WaComp, numComps);
     FOR i := 0 TO numComps-1 DO
       one.Comp[i] := Comp[i];
     END;
-    bldGroup[0]  := one;
-    buildAll(all, groups, bldGroup);
+    bldGroups[0] := one;
+    buildAll(all, groups, bldGroups);
 
-  END ModCompos;
+  END ModComposites;
 
 
 (*------------------------------------------------------ Variable Parsing ---*)
@@ -1979,11 +2047,30 @@ PROCEDURE NewVar
               isConst := isConst, align := align, m3t := m3t, in_memory := in_memory,
               up_level := up_level, exported := exported, inited := inited,
               frequency := frequency, varType := varType);
+    qual : TEXT;
+    mod  : TEXT;
+    i3   : BOOLEAN;
   BEGIN
     INC (self.next_var);
     IF varType = VarType.Global THEN
       v.inits := NEW(RefSeq.T).init();
     END;
+
+    (* global variable considerations *)
+    v.def := Typedef(self, m3t);
+    IF v.def = NIL THEN
+      self.Trace("  pending typedef TRUE");
+    END;
+    IF name # M3ID.NoID THEN
+      qual := M3ID.ToText(name);
+      mod  := ModPrefix(self, qual, i3);
+      IF mod # qual THEN
+        v.mod := M3ID.Add(mod);
+      END;
+    ELSE
+      v.mod := M3ID.NoID;
+    END;
+
     (* DONE: handled structures *)
     v.waType := WasmType(v.type);
     RETURN v;
@@ -2018,6 +2105,12 @@ PROCEDURE set_index(v : WaVar; proc : WaProc; index : WASM.Index) =
     v.inProc  := proc;
     v.waIndex := index;
   END set_index;
+
+PROCEDURE Globaladd(self: T; glob : WaVar) =
+  BEGIN
+    self.Trace("  Global exported=", Fmt.Bool(glob.exported));
+    PushRev(self.globStack, glob);
+  END Globaladd;
 
 
 (*----------------------------------------------------- Procedure Parsing ---*)
@@ -2108,7 +2201,7 @@ PROCEDURE NewField(def : WaDefn; typeid : TypeUID; name : Name; type : WASM.Type
 
 PROCEDURE NewStruct(self: T; typeid : TypeUID; bit_size: BitSize; numFields, numMethods : INTEGER): WaStruct =
   VAR
-    s := NEW (WaStruct, typeid:= typeid, integral := FALSE);
+    s := NEW (WaStruct, typeid:= typeid, type := WTYPE_structref, integral := FALSE);
   BEGIN
     EVAL s.init(size := bit_size, offset := 0, wtype := WTYPE_structref, numFields := numFields, pack := WPACK_not);
     IF numFields > 0 THEN
@@ -2167,6 +2260,33 @@ PROCEDURE Typeadd(self: T; def : WaDefn) =
   BEGIN
     EVAL self.defTable.put(def.typeid, def);
   END Typeadd;
+
+PROCEDURE Typevalue(self: T; def : WaDefn) : WASM.ExpressionRef =
+  VAR
+    expr : WASM.ExpressionRef;
+    zVal := NEW(REF WASM.Literal);
+  BEGIN
+    IF def.type = WTYPE_i32 THEN
+      zVal^ := WASM.LiteralInt32(0);
+      expr  := WASM.Const(self.moduleRef, zVal);
+    ELSIF def.type = WTYPE_i64 THEN
+      zVal^ := WASM.LiteralInt64(0);
+      expr  := WASM.Const(self.moduleRef, zVal);
+    ELSIF def.type = WTYPE_f32 THEN
+      zVal^ := WASM.LiteralFloat32(0.0);
+      expr  := WASM.Const(self.moduleRef, zVal);
+    ELSIF def.type = WTYPE_f64 THEN
+      zVal^ := WASM.LiteralFloat64(0.0d0);
+      expr  := WASM.Const(self.moduleRef, zVal);
+    ELSIF def.type = WTYPE_funcref OR def.type = WTYPE_anyref
+          OR def.type = WTYPE_i31ref OR def.type = WTYPE_structref
+          OR def.type = WTYPE_arrayref OR def.type = WTYPE_stringref THEN
+      expr  := WASM.RefNull(self.moduleRef, def.type);
+    ELSE
+      <* ASSERT FALSE *>
+    END;
+    RETURN expr;
+  END Typevalue;
 
 PROCEDURE Compadd(self: T; comp : WaComp) =
   VAR compType : TEXT;
@@ -2391,6 +2511,9 @@ BEGIN
   IO.Put("WPACK_not         := " & Fmt.Int(WPACK_not) & Wr.EOL);
   IO.Put("WPACK_int8        := " & Fmt.Int(WPACK_int8) & Wr.EOL);
   IO.Put("WPACK_int16       := " & Fmt.Int(WPACK_int16) & Wr.EOL);
+
+  M3JumpBufSize := M3ID.Add("m3_jmpbuf_size");
+  M3Alloca := M3ID.Add("alloca");
 
   (* Modula-3 predeclared types, from m3fe *)
   EVAL Target.Init("AMD64_LINUX");
