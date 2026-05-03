@@ -386,6 +386,15 @@ note_procedure_origin (p: Proc);
    in the source.  In particular, nested in whatever procedures,
    anonymous blocks, or exception scopes surround this point. *)
 
+(*----------------------------------------------------- condition clauses ---*)
+
+begin_clause (l : Label; condition: BOOLEAN := TRUE);
+end_clause (l : Label);
+(* mark the clauses of an IF statement. When condition is TRUE 
+   it starts the THEN clause of a new IF statement; condition FALSE
+   is optional and marks beginning of the ELSE clause.
+   end_clause closes the currently open clause and statement. *)
+
 (*------------------------------------------------------------ statements ---*)
 
 set_label (l: Label;  barrier: BOOLEAN := FALSE);

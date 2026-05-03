@@ -73,6 +73,9 @@ CONST
     Desc { "begin_block", Op.begin_block },
     Desc { "end_block", Op.end_block },
 
+    Desc { "begin_clause", Op.begin_clause },
+    Desc { "end_clause", Op.end_clause },
+
     Desc { "note_procedure_origin", Op.note_procedure_origin },
     Desc { "set_label", Op.set_label },
     Desc { "jump", Op.jump },

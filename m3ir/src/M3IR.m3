@@ -66,6 +66,8 @@ REVEAL
     end_procedure := end_procedure;
     begin_block := begin_block;
     end_block := end_block;
+    begin_clause := begin_clause;
+    end_clause := end_clause;
     note_procedure_origin := note_procedure_origin;
     set_label := set_label;
     jump := jump;
@@ -516,6 +518,18 @@ PROCEDURE note_procedure_origin (xx: T;  p: Proc) =
   BEGIN
     xx.child.note_procedure_origin (p);
   END note_procedure_origin;
+
+(*----------------------------------------------------- condition clauses ---*)
+
+PROCEDURE begin_clause (xx: T; l: Label;  condition: BOOLEAN) =
+  BEGIN
+    xx.child.begin_clause (l, condition);
+  END begin_clause;
+
+PROCEDURE end_clause (xx: T; l: Label) =
+  BEGIN
+    xx.child.end_clause (l);
+  END end_clause;
 
 (*------------------------------------------------------------ statements ---*)
 

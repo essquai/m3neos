@@ -91,6 +91,8 @@ TYPE
         end_procedure := end_procedure;
         begin_block := begin_block;
         end_block := end_block;
+        begin_clause := begin_clause;
+        end_clause := end_clause;
         note_procedure_origin := note_procedure_origin;
         set_label := set_label;
         jump := jump;
@@ -991,6 +993,23 @@ PROCEDURE note_procedure_origin (u: U;  p: Proc) =
     PName (u, p);
     NL    (u);
   END note_procedure_origin;
+
+(*----------------------------------------------------- condition clauses ---*)
+
+PROCEDURE begin_clause (u: U; l: Label;  condition: BOOLEAN) =
+  BEGIN
+    Cmd   (u, "begin_clause");
+    Lab   (u, l);
+    Bool  (u, condition);
+    NL    (u);
+  END begin_clause;
+
+PROCEDURE end_clause (u: U; l: Label) =
+  BEGIN
+    Cmd   (u, "end_clause");
+    Lab   (u, l);
+    NL    (u);
+  END end_clause;
 
 (*------------------------------------------------------------ statements ---*)
 

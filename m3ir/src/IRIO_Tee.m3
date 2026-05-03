@@ -79,6 +79,8 @@ TYPE
     end_procedure := end_procedure;
     begin_block := begin_block;
     end_block := end_block;
+    begin_clause := begin_clause;
+    end_clause := end_clause;
     note_procedure_origin := note_procedure_origin;
     set_label := set_label;
     jump := jump;
@@ -620,6 +622,20 @@ PROCEDURE note_procedure_origin (xx: U;  p: Proc) =
     xx.child.note_procedure_origin (pp.p1);
     xx.child2.note_procedure_origin (pp.p2);
   END note_procedure_origin;
+
+(*----------------------------------------------------- condition clauses ---*)
+
+PROCEDURE begin_clause (xx: U; l: Label;  condition: BOOLEAN) =
+  BEGIN
+    xx.child.begin_clause (Labels^[l].l1, condition);
+    xx.child2.begin_clause (Labels^[l].l2, condition);
+  END begin_clause;
+
+PROCEDURE end_clause (xx: U; l: Label) =
+  BEGIN
+    xx.child.end_clause (Labels^[l].l1);
+    xx.child2.end_clause (Labels^[l].l2);
+  END end_clause;
 
 (*------------------------------------------------------------ statements ---*)
 

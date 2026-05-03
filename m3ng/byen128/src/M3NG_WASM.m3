@@ -147,6 +147,8 @@ REVEAL
     end_procedure := end_procedure;
     begin_block := begin_block;
     end_block := end_block;
+    begin_clause := begin_clause;
+    end_clause := end_clause;
     note_procedure_origin := note_procedure_origin;
     set_label := set_label;
     jump := jump;
@@ -1260,6 +1262,17 @@ PROCEDURE end_block (self: T) =
   END end_block;
 
 <*NOWARN*>PROCEDURE note_procedure_origin(self: T; proc: Proc) = BEGIN END note_procedure_origin;
+
+PROCEDURE begin_clause(self: T; label: Label; condition: BOOLEAN) =
+  BEGIN
+    self.Trace("begin_clause ", Fmt.Int(label), " condition=", Fmt.Bool(condition));
+  END begin_clause;
+
+PROCEDURE end_clause(self: T; label: Label) =
+  BEGIN
+    self.Trace("end_clause ", Fmt.Int(label));
+  END end_clause;
+
 <*NOWARN*>PROCEDURE set_label(self: T; label: Label; barrier: BOOLEAN) = BEGIN END set_label;
 <*NOWARN*>PROCEDURE jump(self: T; label: Label) = BEGIN END jump;
 <*NOWARN*>PROCEDURE if_true(self: T; type: IType; label: Label; frequency: Frequency) = BEGIN END if_true;

@@ -104,6 +104,7 @@ TYPE
     free_temps  : TempWrapper := NIL;
     busy_temps  : TempWrapper := NIL;
     block_cnt   : INTEGER     := 0;
+    clause_cnt  : INTEGER     := 0;
   END;
 
 VAR ProcStackRoot : ProcStackNodeRef := NIL; 
@@ -141,6 +142,7 @@ VAR
   variables   : IntRefTbl.T := NIL;
   procedures  : IntRefTbl.T := NIL;
   block_cnt   : INTEGER     := 0;
+  clause_cnt  : INTEGER     := 0;
   tos         : CARDINAL    := 0;
   (* ^top-of-stack (lowest *unused* stack element.*)
   stack       : ARRAY [0..99] OF ValRec;
@@ -202,6 +204,7 @@ PROCEDURE Init () =
     variables      := NIL;
     procedures     := NIL;
     block_cnt      := 0;
+    clause_cnt     := 0;
     tos            := 0;
   END Init;
 
@@ -1401,9 +1404,11 @@ PROCEDURE Begin_procedure (p: Proc) =
     N.free_temps := free_temps;  
     N.busy_temps := busy_temps;  
     N.block_cnt := block_cnt; 
+    N.clause_cnt := clause_cnt;
     free_temps     := NIL;
     busy_temps    := NIL;
     block_cnt      := 0;
+    clause_cnt    := 0;
     cg.begin_procedure (p);
   END Begin_procedure;
 
@@ -1415,10 +1420,12 @@ PROCEDURE End_procedure (p: Proc) =
     <*ASSERT free_temps = NIL*>
     <*ASSERT busy_temps = NIL*>
     <*ASSERT block_cnt = 0*>
+    <*ASSERT clause_cnt = 0*>
     <*ASSERT N # NIL*>
     free_temps := N.free_temps;  
     busy_temps := N.busy_temps;  
     block_cnt := N.block_cnt; 
+    clause_cnt := N.clause_cnt;
     ProcStackRoot := N.link; 
     cg.end_procedure (p);
   END End_procedure;
@@ -1440,6 +1447,20 @@ PROCEDURE Note_procedure_origin (p: Proc) =
   BEGIN
     cg.note_procedure_origin (p);
   END Note_procedure_origin;
+
+(*----------------------------------------------------- condition clauses ---*)
+
+PROCEDURE Begin_clause (l: Label;  condition: BOOLEAN := TRUE) =
+  BEGIN
+    cg.begin_clause (l, condition);
+    IF condition THEN INC (clause_cnt); END;
+  END Begin_clause;
+
+PROCEDURE End_clause (l : Label) =
+  BEGIN
+    DEC (clause_cnt);
+    cg.end_clause (l);
+  END End_clause;
 
 (*------------------------------------------------------------ statements ---*)
 

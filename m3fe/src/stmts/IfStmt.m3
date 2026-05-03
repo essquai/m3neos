@@ -89,6 +89,8 @@ PROCEDURE Compile (p: P): Stmt.Outcomes =
     c       : Clause;
     l_end   : IR.Label;
     l_next  : IR.Label;
+    l_cond  := IR.No_label;
+    elsif   : INTEGER := 0;
     oc, xc  : Stmt.Outcomes;
     gotoEnd := FALSE;
   BEGIN
@@ -98,11 +100,14 @@ PROCEDURE Compile (p: P): Stmt.Outcomes =
     oc := Stmt.Outcomes {};
     WHILE (c # NIL) DO
       l_next := IR.Next_label ();
+      IF l_cond = IR.No_label THEN l_cond := l_next; END;
       Scanner.offset := c.origin;
       IR.Gen_location (Scanner.offset);
       Expr.PrepBranch (c.cond, IR.No_label, l_next, IR.Always - IR.Likely);
       Expr.CompileBranch (c.cond, IR.No_label, l_next, IR.Always - IR.Likely);
+      IR.Begin_clause(l_next, TRUE);
       xc := Stmt.Compile (c.body);
+      IF l_cond # l_next THEN INC(elsif) END;
       oc := oc + xc;
       IF (Stmt.Outcome.FallThrough IN xc)
         AND ((c.next # NIL) OR (p.elseBody # NIL)) THEN
@@ -113,10 +118,20 @@ PROCEDURE Compile (p: P): Stmt.Outcomes =
       c := c.next;
     END;
 
-    IF (p.elseBody = NIL)
-      THEN oc := oc + Stmt.Outcomes {Stmt.Outcome.FallThrough};
-      ELSE oc := oc + Stmt.Compile (p.elseBody);
+    (* Close any ELSIF clauses *)
+    WHILE elsif > 0 DO
+      IR.End_clause(l_next);
+      DEC(l_next);
+      DEC(elsif);
     END;
+
+    IF (p.elseBody = NIL) THEN
+      oc := oc + Stmt.Outcomes {Stmt.Outcome.FallThrough};
+    ELSE
+      IR.Begin_clause(l_cond, FALSE);
+      oc := oc + Stmt.Compile (p.elseBody);
+    END;
+    IR.End_clause(l_cond);
 
     IF (gotoEnd) THEN IR.Set_label (l_end) END;
     RETURN oc;
