@@ -273,6 +273,12 @@ PROCEDURE AddFunction(
     body: ExpressionRef
 ): FunctionRef;
 
+(* Set function var name *)
+<*EXTERNAL "BinaryenFunctionSetLocalName"*> PROCEDURE FunctionSetLocalName(
+    func: FunctionRef;
+    index: Index;
+    name: char_star
+);
 
 (* Get a function by name *)
 <*EXTERNAL "BinaryenGetFunction"*> PROCEDURE GetFunction(
@@ -986,6 +992,22 @@ PROCEDURE Block(
 <*EXTERNAL "BinaryenReturn"*> PROCEDURE Return(
     module: ModuleRef;
     value: ExpressionRef
+): ExpressionRef;
+
+(* Pop *)
+<* EXTERNAL "BinaryenPop"*> PROCEDURE Pop(
+    module: ModuleRef;
+    type: Type
+): ExpressionRef;
+
+(* No-op *)
+<* EXTERNAL "BinaryenNop"*> PROCEDURE Noop(
+    module: ModuleRef
+): ExpressionRef;
+
+(* Unreachable *)
+<* EXTERNAL "BinaryenUnreachable"*> PROCEDURE Unreachable(
+    module: ModuleRef
 ): ExpressionRef;
 
 (* ============================================================================
