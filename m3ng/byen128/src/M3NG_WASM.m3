@@ -147,8 +147,6 @@ REVEAL
     end_procedure := end_procedure;
     begin_block := begin_block;
     end_block := end_block;
-    begin_clause := begin_clause;
-    end_clause := end_clause;
     note_procedure_origin := note_procedure_origin;
     set_label := set_label;
     jump := jump;
@@ -247,6 +245,30 @@ END;
 CONST NOTYPE : INTEGER = 0;
 
 VAR
+  WTYPE_none: WASM.Type;
+  WTYPE_i32: WASM.Type;
+  WTYPE_i64: WASM.Type;
+  WTYPE_f32: WASM.Type;
+  WTYPE_f64: WASM.Type;
+  WTYPE_v128: WASM.Type;
+  WTYPE_funcref: WASM.Type;
+  WTYPE_externref: WASM.Type;
+  WTYPE_anyref: WASM.Type;
+  WTYPE_eqref: WASM.Type;
+  WTYPE_i31ref: WASM.Type;
+  WTYPE_structref: WASM.Type;
+  WTYPE_arrayref: WASM.Type;
+  WTYPE_stringref: WASM.Type;
+  WTYPE_nullref: WASM.Type;
+  WTYPE_nullexternref: WASM.Type;
+  WTYPE_nullfuncref: WASM.Type;
+  WTYPE_unreachable: WASM.Type;
+  WTYPE_auto: WASM.Type;
+
+  WPACK_not: WASM.Packed;
+  WPACK_int8: WASM.Packed;
+  WPACK_int16: WASM.Packed;
+
   WDEF_Min8   : INTEGER;
   WDEF_Max8   : INTEGER;
   WDEF_Max8U  : INTEGER;
@@ -333,8 +355,6 @@ TYPE
     (* NOTE: It is hard to tell from the header files, but apparently, there
              is only one insertion point globally, not one per BB. *)
     saveBB : WASM.ExpressionRef; (* for nested procs save the bb *)
-    curBB : WASM.ExpressionRef; (* currently active block *)
-    curClause  : REF ClauseBlock := NIL; (* active clause block *)
     localStack  : RefSeq.T := NIL;
     paramStack  : RefSeq.T := NIL;
     uplevelRefdStack  : RefSeq.T := NIL;
@@ -569,8 +589,8 @@ PROCEDURE declare_local
         INC(proc.cumUplevelRefdCt);
       END;
 
-      self.Trace("declare_local signature ", M3ID.ToText(n), eol := FALSE);
-      self.Trace(" type=",Fmt.Int(ORD(t))," index=",Fmt.Int(v.waIndex)," wtype=", Fmt.Int(v.waType));
+      self.Trace("declare_local signature ", M3ID.ToText(n));
+      self.Trace("\ttype=",Fmt.Int(ORD(t))," index=",Fmt.Int(v.waIndex)," wtype=", Fmt.Int(v.waType));
     ELSE (* We are in the body of the procedure. *)
       <* ASSERT proc = self.curProc *>
       (* self.allocVarInEntryBlock(v); *)
@@ -585,9 +605,8 @@ PROCEDURE declare_local
       (* Need a debugvar for locals in blocks eg for loop indexes *)
       DebugVar(self, v);
 
-      v.varType := VarType.Temp;
-      self.Trace("declare_local temp ", M3ID.ToText(n), eol := FALSE);
-      self.Trace(" type=" & Fmt.Int(ORD(t))," index=",Fmt.Int(v.waIndex)," wtype=",Fmt.Int(v.waType));
+      self.Trace("declare_local body ", M3ID.ToText(n));
+      self.Trace("\ttype=" & Fmt.Int(ORD(t))," index=",Fmt.Int(v.waIndex)," wtype=",Fmt.Int(v.waType));
     END;
     RETURN v;
   END declare_local;
@@ -652,30 +671,15 @@ PROCEDURE declare_param (self: T;  n: Name;  s: ByteSize;  a: Alignment; t: Type
     RETURN v;
   END declare_param;
 
-PROCEDURE declare_temp(self: T; s: ByteSize; a: Alignment; t: Type; in_memory: BOOLEAN; <*UNUSED*>typename: Name): Var =
-  VAR
-    name : TEXT;
-    v    : WaVar;
-    proc : WaProc;
-    n    : M3ID.T; 
-  BEGIN
+PROCEDURE declare_temp(self: T; byte_size: ByteSize; alignment: Alignment; type: Type;
+ in_memory: BOOLEAN; typename: Name): Var =
+   VAR name : TEXT;
+   BEGIN
      (* local variable, no typeUID, not up_levelled, likely accessed *)
-    INC(self.next_temp);
-    name := "TMP_" & Fmt.Int(self.next_temp);
-    n    := M3ID.Add(name);
-    self.Trace("declare_temp ", name);
-    v := NewVar
-          (self,n,s,a,t,isConst:=FALSE,m3t:=M3IR.NO_UID,in_memory:=in_memory,
-           up_level:=FALSE,exported:=FALSE,inited:=FALSE,frequency:=M3IR.Likely,
-           varType:=VarType.Temp);
-    proc := self.curLocalOwner;
-
-    (* Local indices increment after parameters *)
-    v.set_index(proc, proc.nextLocal + proc.numParams);
-    INC(proc.nextLocal);
-    (* PushRev(proc.localStack, v); *)
-
-    RETURN v;
+     INC(self.next_temp);
+     name := "TMP_" & Fmt.Int(self.next_temp);
+     self.Trace("declare_temp ", name);
+     RETURN declare_local(self, M3ID.Add(name), byte_size, alignment, type, M3IR.NO_UID, in_memory, FALSE, M3IR.Likely, typename);
    END declare_temp;
 
 PROCEDURE import_procedure (self: T;  n: Name;  n_params: INTEGER;
@@ -800,7 +804,7 @@ PROCEDURE declare_typename(self: T; typeid: TypeUID; name: Name) =
 
 PROCEDURE declare_array(self: T; typeid, index_typeid, element_typeid: TypeUID; bit_size: BitSize; <*UNUSED*>element_typename: Name) =
   VAR
-    arr := NEW(WaArray, typeid := typeid, type := WASM.type_arrayref, size := bit_size);
+    arr := NEW(WaArray, typeid := typeid, type := WTYPE_arrayref, size := bit_size);
     elt : WaDefn;
     ofC : WaComp := NIL;
     idx : WaDefn;
@@ -828,7 +832,7 @@ PROCEDURE declare_array(self: T; typeid, index_typeid, element_typeid: TypeUID; 
 
 PROCEDURE declare_open_array(self: T; typeid, element_typeid: TypeUID; bit_size: BitSize; <*UNUSED*>element_typename: Name) =
   VAR
-    arr := NEW(WaArray, typeid := typeid, type := WASM.type_arrayref, size := bit_size);
+    arr := NEW(WaArray, typeid := typeid, type := WTYPE_arrayref, size := bit_size);
     elt : WaDefn;
     dim : INTEGER;
     ofC : WaComp := NIL;
@@ -851,7 +855,7 @@ PROCEDURE declare_open_array(self: T; typeid, element_typeid: TypeUID; bit_size:
   END declare_open_array;
 
 PROCEDURE declare_enum(self: T; typeid: TypeUID; n_elts: INTEGER; bit_size: BitSize) =
-  VAR enum := NEW(WaOrdinal, typeid := typeid, size := bit_size, type := WASM.type_i32, pack := WASM.pack_not, number := n_elts);
+  VAR enum := NEW(WaOrdinal, typeid := typeid, size := bit_size, type := WTYPE_i32, pack := WPACK_not, number := n_elts);
   BEGIN
     self.Trace("declare_enum ", M3IR.FormatUID(typeid), " n_elts=", Fmt.Int(n_elts), " size=", Fmt.Int(bit_size));
 
@@ -861,8 +865,8 @@ PROCEDURE declare_enum(self: T; typeid: TypeUID; n_elts: INTEGER; bit_size: BitS
       enum.elements     := NEW(REF ARRAY OF WaDefn, n_elts);
       enum.numFields    := n_elts;
       enum.last         := n_elts - 1;
-      IF enum.size = 8 THEN  enum.pack := WASM.pack_int8;
-                       ELSIF enum.size = 16 THEN enum.pack := WASM.pack_int16; END;
+      IF enum.size = 8 THEN  enum.pack := WPACK_int8;
+                       ELSIF enum.size = 16 THEN enum.pack := WPACK_int16; END;
     ELSE
       (* empty *)
       Typeadd(self, enum);
@@ -942,14 +946,14 @@ PROCEDURE declare_subrange(self: T; typeid, domain_typeid: TypeUID; READONLY min
     <* ASSERT converted *>
     range.number := range.last + 1 - range.first;
     CASE range.size OF 
-    |  8 => range.pack := WASM.pack_int8;
-            range.type := WASM.type_i32;
-    | 16 => range.pack := WASM.pack_int16;
-            range.type := WASM.type_i32;
-    | 32 => range.pack := WASM.pack_not;
-            range.type := WASM.type_i32;
-    | 64 => range.pack := WASM.pack_not;
-            range.type := WASM.type_i64;
+    |  8 => range.pack := WPACK_int8;
+            range.type := WTYPE_i32;
+    | 16 => range.pack := WPACK_int16;
+            range.type := WTYPE_i32;
+    | 32 => range.pack := WPACK_not;
+            range.type := WTYPE_i32;
+    | 64 => range.pack := WPACK_not;
+            range.type := WTYPE_i64;
     ELSE
       <* ASSERT FALSE *>
     END;
@@ -961,7 +965,7 @@ PROCEDURE declare_subrange(self: T; typeid, domain_typeid: TypeUID; READONLY min
 
 PROCEDURE declare_pointer(self: T; typeid, target_typeid: TypeUID; <*UNUSED*> brand: TEXT; <*UNUSED*>traced: BOOLEAN; <*UNUSED*>target_typename: Name) =
   VAR
-    ref := NEW(WaRef, typeid := typeid, type := WASM.type_anyref, size := 64, integral := FALSE, any := target_typeid);
+    ref := NEW(WaRef, typeid := typeid, type := WTYPE_anyref, size := 64, integral := FALSE, any := target_typeid);
     def := Typedef(self, target_typeid);
   BEGIN
     <* ASSERT def # NIL *>
@@ -972,7 +976,7 @@ PROCEDURE declare_pointer(self: T; typeid, target_typeid: TypeUID; <*UNUSED*> br
 
 PROCEDURE declare_indirect(self: T; typeid, target_typeid: TypeUID; <*UNUSED*>target_typename: Name) =
   VAR
-    ref := NEW(WaRef, typeid := typeid, type := WASM.type_anyref, size := 64, integral := FALSE, indirect := TRUE, any := target_typeid);
+    ref := NEW(WaRef, typeid := typeid, type := WTYPE_anyref, size := 64, integral := FALSE, indirect := TRUE, any := target_typeid);
     def := Typedef(self, target_typeid);
   BEGIN
     <* ASSERT def # NIL *>
@@ -1062,7 +1066,7 @@ PROCEDURE declare_method(self: T; name: Name; signature: TypeUID) =
     str := self.curStruct;
     def := Typedef(self, signature);
   BEGIN
-    fld := NewField(def, typeid := signature, type := WASM.type_funcref, name := name, pack := def.pack);
+    fld := NewField(def, typeid := signature, type := WTYPE_funcref, name := name, pack := def.pack);
     <* ASSERT str # NIL *>
     <* ASSERT self.next_method < str.numMethods *>
     self.Trace("declare_method ", M3ID.ToText(name), " num=", Fmt.Int(self.next_method), " signature=", M3IR.FormatUID(signature));
@@ -1124,8 +1128,6 @@ PROCEDURE begin_procedure (self: T;  p: Proc) =
     localTypes : REF ARRAY OF WASM.Type;
     blkLiteral : REF WASM.Literal := NIL;
     children : REF ARRAY OF WASM.ExpressionRef := NIL;
-    blocks : REF ARRAY OF WASM.ExpressionRef := NEW(REF ARRAY OF WASM.ExpressionRef, 2);
-    body : WASM.ExpressionRef;
     numChildren : WASM.Index := 0;
     procName : Ctypes.char_star;
   BEGIN
@@ -1146,7 +1148,7 @@ PROCEDURE begin_procedure (self: T;  p: Proc) =
     END;
 
 
-    proc.saveBB := WASM.Block(self.moduleRef, Cstar("save"), NIL, 0, WASM.type_auto);
+    proc.saveBB := WASM.Block(self.moduleRef, Cstar("save"), NIL, 0, WTYPE_auto);
     (* begin blocks can be nested so need to keep a stack of procedures so we
        are referring to the current proc for the BB's *)
     Push(self.procStack,proc);
@@ -1159,22 +1161,21 @@ PROCEDURE begin_procedure (self: T;  p: Proc) =
     DebugClearLoc(self);
 
     (* Create the entry and second basic blocks. *)
-    IF proc.procTy = WASM.type_i32 OR proc.procTy = WASM.type_i64 THEN
+    IF proc.procTy = WTYPE_i32 OR proc.procTy = WTYPE_i64 THEN
         blkLiteral := NEW(REF WASM.Literal);
-        IF proc.procTy = WASM.type_i32 THEN
+        IF proc.procTy = WTYPE_i32 THEN
           blkLiteral^ := WASM.LiteralInt32(32);
         ELSE
           blkLiteral^ := WASM.LiteralInt64(64);
         END;
-        children := blocks;
+        children := NEW(REF ARRAY OF WASM.ExpressionRef, 1);
         numChildren := 1;
         children[0] := WASM.Const(self.moduleRef, blkLiteral);
     END;
-    proc.entryBB := WASM.Block(self.moduleRef, Cstar("entry"), NIL, 0, WASM.type_auto);
-    proc.curBB   := proc.entryBB;
+    proc.entryBB := WASM.Block(self.moduleRef, Cstar("entry"), children, numChildren, proc.procTy);
     (* ^For stuff we generate: alloca's, display build, etc. *)
 
-    proc.secondBB := WASM.Block(self.moduleRef, Cstar("second"), children, numChildren, proc.procTy);
+    proc.secondBB := WASM.Block(self.moduleRef, Cstar("second"), NIL, 0, WTYPE_auto);
     (* ^For m3-coded operations. *)
 
     (* Build the procedure's argument list *)
@@ -1197,16 +1198,8 @@ PROCEDURE begin_procedure (self: T;  p: Proc) =
 
     (* Add function to the module *)
     procName := Cstar(M3ID.ToText(proc.name));
-    blocks[0] := proc.entryBB;
-    blocks[1] := proc.secondBB;
-    body := WASM.Block(self.moduleRef, NIL, blocks, 2, proc.procTy);
     proc.funcRef := WASM.AddFunction(self.moduleRef, procName, proc.procParms, proc.procTy,
-                                     localTypes, numLocals, body);
-
-    (* Name tthe proc vars *)
-    SetNames(self, proc);
-
-
+                                     localTypes, numLocals, proc.entryBB);
     <* ASSERT self.moduleObj # NIL *>
     IF self.blockLevel = 0 THEN
       (* top-level procedures added to export list *)
@@ -1240,7 +1233,7 @@ PROCEDURE end_procedure (self: T;  p: Proc) =
     proc := NARROW(p,WaProc);
     <* ASSERT proc = self.curProc *>
     <* ASSERT proc.state = procState.begun *>
-(*    <* ASSERT proc.curClause = NIL *> *)
+
 
     self.curProc.state := procState.complete;
     Pop(self.procStack);
@@ -1267,123 +1260,14 @@ PROCEDURE end_block (self: T) =
   END end_block;
 
 <*NOWARN*>PROCEDURE note_procedure_origin(self: T; proc: Proc) = BEGIN END note_procedure_origin;
-
-PROCEDURE begin_clause(self: T; label: Label; condition: BOOLEAN) =
-  VAR cur := self.curProc.curClause;
-  BEGIN
-    <* ASSERT cur # NIL*>
-    <* ASSERT cur.label = label *>
-    self.Trace("begin_clause ", Fmt.Int(label), " condition=", Fmt.Bool(condition));
-    IF condition THEN
-      self.curProc.curBB := cur.trueBB;
-    ELSE
-      self.curProc.curBB := cur.falseBB;
-    END;
-  END begin_clause;
-
-PROCEDURE end_clause(self: T; label: Label) =
-  VAR cur := self.curProc.curClause;
-  BEGIN
-    self.Trace("end_clause ", Fmt.Int(label));
-    (* was this clauseBlock else-less? *)
-    IF self.curProc.curBB = cur.trueBB THEN
-      EVAL WASM.BlockAppendChild(cur.falseBB, WASM.Noop(self.moduleRef))
-    END;
-    PopClause(self, label);
-  END end_clause;
-
 <*NOWARN*>PROCEDURE set_label(self: T; label: Label; barrier: BOOLEAN) = BEGIN END set_label;
 <*NOWARN*>PROCEDURE jump(self: T; label: Label) = BEGIN END jump;
-
-PROCEDURE if_true(self: T; type: IType; label: Label; <*UNUSED*>frequency: Frequency) =
-  VAR
-    exp : WASM.ExpressionRef;
-    cb : REF ClauseBlock;
-    op_ne : WASM.Op;
-    zero := NEW(REF WASM.Literal);
-    wType := WasmType(type);
-  BEGIN
-    self.Trace("if_true ", Fmt.Int(label));
-    cb := PushClause(self, label);
-
-    CASE type OF 
-    |Type.Word32, Type.Int32 =>
-        op_ne := WASM.op_NeInt32;
-        zero^ := WASM.LiteralInt32(0);
-    |Type.Word64, Type.Int64 =>
-        op_ne := WASM.op_NeInt64;
-        zero^ := WASM.LiteralInt64(0);
-    END;
-    (* Push 0 and compare *)
-    EVAL WASM.BlockAppendChild(self.curProc.curBB, WASM.Const(self.moduleRef, zero));
-    exp := WASM.Binary(self.moduleRef, op_ne, WASM.Pop(self.moduleRef, wType), WASM.Pop(self.moduleRef, wType));
-
-    (* add an If to the current block *)
-    exp := WASM.If(self.moduleRef, exp, cb.trueBB, cb.falseBB);
-    EVAL WASM.BlockAppendChild(self.curProc.curBB, exp);
-  END if_true;
-
-PROCEDURE if_false(self: T; type: IType; label: Label; <*UNUSED*>frequency: Frequency) =
-  VAR
-    exp : WASM.ExpressionRef;
-    cb : REF ClauseBlock;
-    op_eq : WASM.Op;
-    zero := NEW(REF WASM.Literal);
-    wType := WasmType(type);
-  BEGIN
-    self.Trace("if_false ", Fmt.Int(label));
-    cb := PushClause(self, label);
-
-    CASE type OF 
-    |Type.Word32, Type.Int32 =>
-        op_eq := WASM.op_EqInt32;
-        zero^ := WASM.LiteralInt32(0);
-    |Type.Word64, Type.Int64 =>
-        op_eq := WASM.op_EqInt64;
-        zero^ := WASM.LiteralInt64(0);
-    END;
-    (* Push 0 and compare *)
-    EVAL WASM.BlockAppendChild(self.curProc.curBB, WASM.Const(self.moduleRef, zero));
-    exp := WASM.Binary(self.moduleRef, op_eq, WASM.Pop(self.moduleRef, wType), WASM.Pop(self.moduleRef, wType));
-
-    (* add an If to the current block *)
-    exp := WASM.If(self.moduleRef, exp, cb.trueBB, cb.falseBB);
-    EVAL WASM.BlockAppendChild(self.curProc.curBB, exp);
-  END if_false;
-
-
+<*NOWARN*>PROCEDURE if_true(self: T; type: IType; label: Label; frequency: Frequency) = BEGIN END if_true;
+<*NOWARN*>PROCEDURE if_false(self: T; type: IType; label: Label; frequency: Frequency) = BEGIN END if_false;
 <*NOWARN*>PROCEDURE if_compare(self: T; type: ZType; op: CompareOp; label: Label; frequency: Frequency) = BEGIN END if_compare;
 <*NOWARN*>PROCEDURE case_jump(self: T; type: IType; READONLY labels: ARRAY OF Label) = BEGIN END case_jump;
 <*NOWARN*>PROCEDURE exit_proc(self: T; type: Type) = BEGIN END exit_proc;
-
-PROCEDURE load(self: T; var: Var; byte_offset: ByteOffset; mtype: MType; ztype: ZType) =
-  VAR
-    v   := NARROW(var, WaVar);
-    get : WASM.ExpressionRef := NIL;
-    n   : TEXT;
-    cur := self.curProc;
-    q   := " local/global";
-  BEGIN
-    IF v = NIL THEN
-      self.Trace("load no var");
-      RETURN;
-    END;
-    n := M3ID.ToText(v.name);
-
-    IF v.varType = VarType.Global THEN
-      get := WASM.GlobalGet(self.moduleRef, Cstar(n), v.waType);
-    ELSIF v.varType = VarType.Local OR v.varType = VarType.Param THEN
-      get := WASM.LocalGet(self.moduleRef, v.waIndex, v.waType);
-    END;
-    IF v.varType = VarType.Temp THEN
-      q := " temp";
-    ELSE
-      EVAL WASM.BlockAppendChild(cur.curBB, get);
-    END;
-    self.Trace("load ", n, " type=", Target.TypeNames[ztype], q);
-  END load;
-
-
+<*NOWARN*>PROCEDURE load(self: T; var: Var; byte_offset: ByteOffset; mtype: MType; ztype: ZType) = BEGIN END load;
 <*NOWARN*>PROCEDURE store(self: T; var: Var; byte_offset: ByteOffset; ztype: ZType; mtype: MType) = BEGIN END store;
 <*NOWARN*>PROCEDURE load_address(self: T; var: Var; byte_offset: ByteOffset) = BEGIN END load_address;
 <*NOWARN*>PROCEDURE load_indirect(self: T; byte_offset: ByteOffset; mtype: MType; ztype: ZType) = BEGIN END load_indirect;
@@ -1557,42 +1441,42 @@ PROCEDURE New(WasmDebug : BOOLEAN; GenDebug: BOOLEAN) : T =
                 def := NEW(WaDefn);
       | Predeclared.LInt, Predeclared.LCard =>
                 IF k = Predeclared.LInt THEN first := WDEF_Min64; END;
-                ord := NEW(WaOrdinal, type := WASM.type_i64, size := 64, first := first, last := WDEF_Max64, number := WDEF_Max64U);
+                ord := NEW(WaOrdinal, type := WTYPE_i64, size := 64, first := first, last := WDEF_Max64, number := WDEF_Max64U);
                 def := ord;
       | Predeclared.Int, Predeclared.Card =>
                 IF k = Predeclared.Int THEN first := WDEF_Min32; END;
-                ord := NEW(WaOrdinal, type := WASM.type_i32, size := 32, first := first, last := WDEF_Max32, number := WDEF_Max32U+1);
+                ord := NEW(WaOrdinal, type := WTYPE_i32, size := 32, first := first, last := WDEF_Max32, number := WDEF_Max32U+1);
                 def := ord;
       | Predeclared.Bool =>
-                ord := NEW(WaOrdinal, type := WASM.type_i32, size := 8, first :=0, last := 1, number := 2, pack := WASM.pack_int8);
+                ord := NEW(WaOrdinal, type := WTYPE_i32, size := 8, first :=0, last := 1, number := 2, pack := WPACK_int8);
                 def := ord;
       | Predeclared.Reel, Predeclared.LReel, Predeclared.EReel =>
                 IF k = Predeclared.Reel THEN
-                  flt := NEW(WaFloat, type := WASM.type_f32, size := 32);
+                  flt := NEW(WaFloat, type := WTYPE_f32, size := 32);
                 ELSE
-                  flt := NEW(WaFloat, type := WASM.type_f64, size := 64, ext := TRUE);
+                  flt := NEW(WaFloat, type := WTYPE_f64, size := 64, ext := TRUE);
                 END;
                 def := flt;
       | Predeclared.Charr =>
-                ord := NEW(WaOrdinal, type := WASM.type_i32, size := 8, first := 0, last := WDEF_Max8U, number := WDEF_Max8U+1, pack := WASM.pack_int8);
+                ord := NEW(WaOrdinal, type := WTYPE_i32, size := 8, first := 0, last := WDEF_Max8U, number := WDEF_Max8U+1, pack := WPACK_int8);
                 def := ord;
       | Predeclared.WCharr =>
-                ord := NEW(WaOrdinal, type := WASM.type_i32, size := 16, first := 0, last := WDEF_Max16U, number := WDEF_Max16U+1, pack := WASM.pack_int16);
+                ord := NEW(WaOrdinal, type := WTYPE_i32, size := 16, first := 0, last := WDEF_Max16U, number := WDEF_Max16U+1, pack := WPACK_int16);
                 def := ord;
       | Predeclared.Addr, Predeclared.Reff =>
-                ref := NEW(WaRef, type := WASM.type_anyref, size := 64, integral := FALSE);
+                ref := NEW(WaRef, type := WTYPE_anyref, size := 64, integral := FALSE);
                 def := ref;
       | Predeclared.ObjectAdr, Predeclared.ObjectRef =>
                 str := NewStruct(t, typeid := M3FEBuiltin.KindUID[k], bit_size := 0, numFields := 0, numMethods := 0);
                 def := str;
       | Predeclared.Mutex =>
-                ref := NEW(WaRef, type := WASM.type_i31ref, size := 32, any := M3FEBuiltin.KindUID[Predeclared.Int]);
+                ref := NEW(WaRef, type := WTYPE_i31ref, size := 32, any := M3FEBuiltin.KindUID[Predeclared.Int]);
                 def := ref;
       | Predeclared.Textt =>
-                ref := NEW(WaRef, type := WASM.type_stringref, size := 64, integral := FALSE);
+                ref := NEW(WaRef, type := WTYPE_stringref, size := 64, integral := FALSE);
                 def := ref;
       | Predeclared.Null =>
-                ref := NEW(WaRef, type := WASM.type_nullref, size := 64, integral := FALSE);
+                ref := NEW(WaRef, type := WTYPE_nullref, size := 64, integral := FALSE);
                 def := ref;
       END;
       def.typeid := M3FEBuiltin.KindUID[k];
@@ -1903,7 +1787,7 @@ PROCEDURE ModComposites(self : T) =
               IF arr.ofComp # NIL THEN
                 (* the element is a composite ref - use its interim type *)
                 fldType[0] := arr.ofComp.wType;
-                fldPack[0] := WASM.pack_not;
+                fldPack[0] := WPACK_not;
               ELSE
                 fldType[0] := arr.element.type;
                 fldPack[0] := arr.element.pack;
@@ -1935,7 +1819,7 @@ PROCEDURE ModComposites(self : T) =
                 IF fld.comp # NIL THEN
                   (* the field is, itself, a composite ref - use its interim type *)
                   fldType[f] := fld.comp.wType;
-                  fldPack[f] := WASM.pack_not;
+                  fldPack[f] := WPACK_not;
                 ELSE
                   fldType[f] := fld.type;
                   fldPack[f] := fld.pack;
@@ -1954,8 +1838,8 @@ PROCEDURE ModComposites(self : T) =
               self.Trace("  Sig ", cmpName, " result=",  M3IR.FormatUID(sig.result), " idx=", Fmt.Int(i));
               
               tuple := FALSE;
-              parType := WASM.type_none;
-              resType := WASM.type_none;
+              parType := WTYPE_none;
+              resType := WTYPE_none;
 
               numElem := sig.numFields;
               FOR f := 0 TO numElem-1 DO
@@ -2249,7 +2133,7 @@ PROCEDURE SetParms(self : T; proc : WaProc) =
     CASE numArgs OF
     | 0 =>
       argTypes := NIL;
-      argTuple := WASM.type_none;
+      argTuple := WTYPE_none;
     | 1 =>
       argTypes := NIL;
       arg      := Get(proc.paramStack);
@@ -2269,49 +2153,21 @@ PROCEDURE SetParms(self : T; proc : WaProc) =
     proc.procParms := argTuple;
   END SetParms;
 
-PROCEDURE SetNames(self : T; proc : WaProc) = 
-  VAR
-    numArgs  : INTEGER;
-    arg      : REFANY;
-    var      : WaVar;
-    name     : TEXT;
-  BEGIN
-
-    numArgs := proc.paramStack.size();
-    FOR i := 0 TO numArgs-1 DO
-      arg  := Get(proc.paramStack,i);
-      var  := NARROW(arg,WaVar);
-      name := M3ID.ToText(var.name);
-      self.Trace("    setName parm=", Fmt.Int(var.waIndex), " name=" & name);
-      WASM.FunctionSetLocalName(proc.funcRef, var.waIndex, Cstar(name));
-    END;
-
-    numArgs := proc.localStack.size();
-    FOR i := 0 TO numArgs-1 DO
-      arg := Get(proc.localStack,i);
-      var := NARROW(arg,WaVar);
-      name := M3ID.ToText(var.name);
-      self.Trace("    setName local=", Fmt.Int(var.waIndex), " name=" & name);
-      WASM.FunctionSetLocalName(proc.funcRef, var.waIndex, Cstar(name));
-    END;
-
-  END SetNames;
-
 (*---------------------------------------------------------- Type Parsing ---*)
 
 PROCEDURE WasmType(t : Type) : WASM.Type =
   BEGIN
     CASE t OF
-    | Type.Int8,Type.Word8   => RETURN WASM.type_i32;
-    | Type.Int16,Type.Word16  => RETURN WASM.type_i32;
-    | Type.Int32,Type.Word32  => RETURN WASM.type_i32;
-    | Type.Int64,Type.Word64  => RETURN WASM.type_i64;
-    | Type.Reel   => RETURN WASM.type_f32;
-    | Type.LReel  => RETURN WASM.type_f64;
-    | Type.XReel  => RETURN WASM.type_f64;
-    | Type.Addr   => RETURN WASM.type_i32;
-    | Type.Struct => RETURN WASM.type_structref;  (* ref: garbage collected *)
-    | Type.Void  => RETURN WASM.type_none;
+    | Type.Int8,Type.Word8   => RETURN WTYPE_i32;
+    | Type.Int16,Type.Word16  => RETURN WTYPE_i32;
+    | Type.Int32,Type.Word32  => RETURN WTYPE_i32;
+    | Type.Int64,Type.Word64  => RETURN WTYPE_i64;
+    | Type.Reel   => RETURN WTYPE_f32;
+    | Type.LReel  => RETURN WTYPE_f64;
+    | Type.XReel  => RETURN WTYPE_f64;
+    | Type.Addr   => RETURN WTYPE_i32;
+    | Type.Struct => RETURN WTYPE_structref;  (* ref: garbage collected *)
+    | Type.Void  => RETURN WTYPE_none;
     END;
   END WasmType;
 
@@ -2345,9 +2201,9 @@ PROCEDURE NewField(def : WaDefn; typeid : TypeUID; name : Name; type : WASM.Type
 
 PROCEDURE NewStruct(self: T; typeid : TypeUID; bit_size: BitSize; numFields, numMethods : INTEGER): WaStruct =
   VAR
-    s := NEW (WaStruct, typeid:= typeid, type := WASM.type_structref, integral := FALSE);
+    s := NEW (WaStruct, typeid:= typeid, type := WTYPE_structref, integral := FALSE);
   BEGIN
-    EVAL s.init(size := bit_size, offset := 0, wtype := WASM.type_structref, numFields := numFields, pack := WASM.pack_not);
+    EVAL s.init(size := bit_size, offset := 0, wtype := WTYPE_structref, numFields := numFields, pack := WPACK_not);
     IF numFields > 0 THEN
       s.fields := NEW(REF ARRAY OF WaField, numFields);
     END;
@@ -2361,7 +2217,7 @@ PROCEDURE NewStruct(self: T; typeid : TypeUID; bit_size: BitSize; numFields, num
 
 PROCEDURE NewSig(self: T; typeid: TypeUID; n_formals: INTEGER; result: TypeUID; n_raises: INTEGER; cc: CallingConvention) : WaSig =
   VAR
-    s := NEW (WaSig, typeid := typeid, type := WASM.type_funcref, numFields := n_formals, result := result, numRaises := n_raises, cc := cc, integral := FALSE);
+    s := NEW (WaSig, typeid := typeid, type := WTYPE_funcref, numFields := n_formals, result := result, numRaises := n_raises, cc := cc, integral := FALSE);
   BEGIN
     IF n_formals > 0 THEN
       s.fields := NEW(REF ARRAY OF WaField, n_formals);
@@ -2410,21 +2266,21 @@ PROCEDURE Typevalue(self: T; def : WaDefn) : WASM.ExpressionRef =
     expr : WASM.ExpressionRef;
     zVal := NEW(REF WASM.Literal);
   BEGIN
-    IF def.type = WASM.type_i32 THEN
+    IF def.type = WTYPE_i32 THEN
       zVal^ := WASM.LiteralInt32(0);
       expr  := WASM.Const(self.moduleRef, zVal);
-    ELSIF def.type = WASM.type_i64 THEN
+    ELSIF def.type = WTYPE_i64 THEN
       zVal^ := WASM.LiteralInt64(0);
       expr  := WASM.Const(self.moduleRef, zVal);
-    ELSIF def.type = WASM.type_f32 THEN
+    ELSIF def.type = WTYPE_f32 THEN
       zVal^ := WASM.LiteralFloat32(0.0);
       expr  := WASM.Const(self.moduleRef, zVal);
-    ELSIF def.type = WASM.type_f64 THEN
+    ELSIF def.type = WTYPE_f64 THEN
       zVal^ := WASM.LiteralFloat64(0.0d0);
       expr  := WASM.Const(self.moduleRef, zVal);
-    ELSIF def.type = WASM.type_funcref OR def.type = WASM.type_anyref
-          OR def.type = WASM.type_i31ref OR def.type = WASM.type_structref
-          OR def.type = WASM.type_arrayref OR def.type = WASM.type_stringref THEN
+    ELSIF def.type = WTYPE_funcref OR def.type = WTYPE_anyref
+          OR def.type = WTYPE_i31ref OR def.type = WTYPE_structref
+          OR def.type = WTYPE_arrayref OR def.type = WTYPE_stringref THEN
       expr  := WASM.RefNull(self.moduleRef, def.type);
     ELSE
       <* ASSERT FALSE *>
@@ -2445,42 +2301,6 @@ PROCEDURE Compadd(self: T; comp : WaComp) =
     self.Trace("  Composite typeid=", M3IR.FormatUID(comp.typeid), " ", compType);
     PushRev(self.compStack, comp);
   END Compadd;
-
-(*---------------------------------------------------------- Control Flow ---*)
-
-TYPE ClauseBlock = RECORD
-  label   : Label;
-  tos     : REF ClauseBlock;
-  prevBB  : WASM.ExpressionRef;
-  trueBB  : WASM.ExpressionRef;
-  falseBB : WASM.ExpressionRef;
-END;
-
-PROCEDURE PushClause(self: T; l : Label) : REF ClauseBlock = 
-  VAR
-    cb := NEW(REF ClauseBlock);
-    blkName : TEXT;
-  BEGIN
-    cb.label := l;
-    blkName := "BLK." & Fmt.Int(l) & ".then";
-    cb.trueBB := WASM.Block(self.moduleRef, Cstar(blkName), NIL, 0, WASM.type_none);
-    blkName := "BLK." & Fmt.Int(l) & ".else";
-    cb.falseBB := WASM.Block(self.moduleRef, Cstar(blkName), NIL, 0, WASM.type_none);
-
-    (* set the clause context - for pop restoration *)
-    cb.prevBB := self.curProc.curBB;
-    cb.tos    := self.curProc.curClause;
-    self.curProc.curClause := cb;
-    RETURN cb;
-  END PushClause;
-
-PROCEDURE PopClause(self: T; l : Label) =
-  VAR cb := self.curProc.curClause;
-  BEGIN
-    <* ASSERT cb # NIL AND cb.label = l *>
-    self.curProc.curBB := cb.prevBB;
-    self.curProc.curClause := cb.tos;
-  END PopClause;
 
 (*---------------------------------------------------------------- Stacks ---*)
 PROCEDURE Pop(stack : RefSeq.T; n: CARDINAL := 1) =
@@ -2644,29 +2464,53 @@ PROCEDURE DebugPopBlock(self : T) =
 (*-------------------------------------------------- Module Initialsation ---*)
 
 BEGIN
+  (* WASM Predeclared Types *)
+  WTYPE_none        := WASM.TypeNone();
+  WTYPE_i32         := WASM.TypeInt32();
+  WTYPE_i64         := WASM.TypeInt64();
+  WTYPE_f32         := WASM.TypeFloat32();
+  WTYPE_f64         := WASM.TypeFloat64();
+  WTYPE_v128        := WASM.TypeVec128();
+  WTYPE_funcref     := WASM.TypeFuncref();
+  WTYPE_externref   := WASM.TypeExternref();
+  WTYPE_anyref      := WASM.TypeAnyref();
+  WTYPE_eqref       := WASM.TypeEqref();
+  WTYPE_i31ref      := WASM.TypeI31ref();
+  WTYPE_structref   := WASM.TypeStructref();
+  WTYPE_arrayref    := WASM.TypeArrayref();
+  WTYPE_stringref   := WASM.TypeStringref();
+  WTYPE_nullref     := WASM.TypeNullref();
+  WTYPE_nullexternref := WASM.TypeNullExternref();
+  WTYPE_nullfuncref := WASM.TypeNullFuncref(); 
+  WTYPE_unreachable := WASM.TypeUnreachable();
+  WTYPE_auto        := WASM.TypeAuto();
 
-  IO.Put("WASM.type_none        := " & Fmt.Int(WASM.type_none) & Wr.EOL);
-  IO.Put("WASM.type_i32         := " & Fmt.Int(WASM.type_i32) & Wr.EOL);
-  IO.Put("WASM.type_i64         := " &  Fmt.Int(WASM.type_i64) & Wr.EOL);
-  IO.Put("WASM.type_f32         := " & Fmt.Int(WASM.type_f32) & Wr.EOL);
-  IO.Put("WASM.type_f64         := " & Fmt.Int(WASM.type_f64) & Wr.EOL);
-  IO.Put("WASM.type_v128        := " & Fmt.Int(WASM.type_v128) & Wr.EOL);
-  IO.Put("WASM.type_funcref     := " & Fmt.Int(WASM.type_funcref) & Wr.EOL);
-  IO.Put("WASM.type_externref   := " & Fmt.Int(WASM.type_externref) & Wr.EOL);
-  IO.Put("WASM.type_anyref      := " & Fmt.Int(WASM.type_anyref) & Wr.EOL);
-  IO.Put("WASM.type_eqref       := " & Fmt.Int(WASM.type_eqref) & Wr.EOL);
-  IO.Put("WASM.type_i31ref      := " & Fmt.Int(WASM.type_i31ref) & Wr.EOL);
-  IO.Put("WASM.type_structref     :=" & Fmt.Int(WASM.type_structref) & Wr.EOL);
-  IO.Put("WASM.type_arrayref      :=" & Fmt.Int(WASM.type_arrayref) & Wr.EOL);
-  IO.Put("WASM.type_stringref     :=" & Fmt.Int(WASM.type_stringref) & Wr.EOL);
-  IO.Put("WASM.type_nullref       :=" & Fmt.Int(WASM.type_nullref) & Wr.EOL);
-  IO.Put("WASM.type_nullexternref :=" & Fmt.Int(WASM.type_nullexternref) & Wr.EOL);
-  IO.Put("WASM.type_nullfuncref   :=" & Fmt.Int(WASM.type_nullfuncref) & Wr.EOL);
-  IO.Put("WASM.type_unreachable := " & Fmt.Int(WASM.type_unreachable) & Wr.EOL);
-  IO.Put("WASM.type_auto        := " & Fmt.Int(WASM.type_auto) & Wr.EOL);
-  IO.Put("WASM.pack_not         := " & Fmt.Int(WASM.pack_not) & Wr.EOL);
-  IO.Put("WASM.pack_int8        := " & Fmt.Int(WASM.pack_int8) & Wr.EOL);
-  IO.Put("WASM.pack_int16       := " & Fmt.Int(WASM.pack_int16) & Wr.EOL);
+  WPACK_not   := WASM.PackedNot();
+  WPACK_int8  := WASM.PackedInt8();
+  WPACK_int16 := WASM.PackedInt16();
+
+  IO.Put("WTYPE_none        := " & Fmt.Int(WTYPE_none) & Wr.EOL);
+  IO.Put("WTYPE_i32         := " & Fmt.Int(WTYPE_i32) & Wr.EOL);
+  IO.Put("WTYPE_i64         := " &  Fmt.Int(WTYPE_i64) & Wr.EOL);
+  IO.Put("WTYPE_f32         := " & Fmt.Int(WTYPE_f32) & Wr.EOL);
+  IO.Put("WTYPE_f64         := " & Fmt.Int(WTYPE_f64) & Wr.EOL);
+  IO.Put("WTYPE_v128        := " & Fmt.Int(WTYPE_v128) & Wr.EOL);
+  IO.Put("WTYPE_funcref     := " & Fmt.Int(WTYPE_funcref) & Wr.EOL);
+  IO.Put("WTYPE_externref   := " & Fmt.Int(WTYPE_externref) & Wr.EOL);
+  IO.Put("WTYPE_anyref      := " & Fmt.Int(WTYPE_anyref) & Wr.EOL);
+  IO.Put("WTYPE_eqref       := " & Fmt.Int(WTYPE_eqref) & Wr.EOL);
+  IO.Put("WTYPE_i31ref      := " & Fmt.Int(WTYPE_i31ref) & Wr.EOL);
+  IO.Put("WTYPE_structref     :=" & Fmt.Int(WTYPE_structref) & Wr.EOL);
+  IO.Put("WTYPE_arrayref      :=" & Fmt.Int(WTYPE_arrayref) & Wr.EOL);
+  IO.Put("WTYPE_stringref     :=" & Fmt.Int(WTYPE_stringref) & Wr.EOL);
+  IO.Put("WTYPE_nullref       :=" & Fmt.Int(WTYPE_nullref) & Wr.EOL);
+  IO.Put("WTYPE_nullexternref :=" & Fmt.Int(WTYPE_nullexternref) & Wr.EOL);
+  IO.Put("WTYPE_nullfuncref   :=" & Fmt.Int(WTYPE_nullfuncref) & Wr.EOL);
+  IO.Put("WTYPE_unreachable := " & Fmt.Int(WTYPE_unreachable) & Wr.EOL);
+  IO.Put("WTYPE_auto        := " & Fmt.Int(WTYPE_auto) & Wr.EOL);
+  IO.Put("WPACK_not         := " & Fmt.Int(WPACK_not) & Wr.EOL);
+  IO.Put("WPACK_int8        := " & Fmt.Int(WPACK_int8) & Wr.EOL);
+  IO.Put("WPACK_int16       := " & Fmt.Int(WPACK_int16) & Wr.EOL);
 
   M3JumpBufSize := M3ID.Add("m3_jmpbuf_size");
   M3Alloca := M3ID.Add("alloca");

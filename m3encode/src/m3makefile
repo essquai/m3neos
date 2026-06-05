@@ -1,7 +1,0 @@
-
-import ("m3ir")
-import ("m3make")
-
-implementation ("Main")
-build_standalone ()
-Program ("m3encode")

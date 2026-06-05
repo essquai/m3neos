@@ -22,7 +22,7 @@ INTERFACE IRIO_Binary;
 *) 
 
 CONST
-  Version = 16_130;  (* version 1.30 *)
+  Version = 16_120;  (* version 1.20 *)
   (* Please update Version if you change the codes in this file. *) 
 
 TYPE
@@ -40,7 +40,6 @@ TYPE
     end_init, init_int, init_proc, init_label, init_var, init_offset,
     init_chars, init_float, import_procedure, declare_procedure,
     begin_procedure, end_procedure, begin_block, end_block,
-    begin_clause, end_clause,
     note_procedure_origin, set_label, jump, if_true, if_false,
     if_eq, if_ne, if_gt, if_ge, if_lt, if_le,       (* file only; in-memory uses if_compare *)
     case_jump, exit_proc, load,

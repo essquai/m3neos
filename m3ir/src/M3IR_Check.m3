@@ -44,7 +44,6 @@ TYPE
         n_errors     := 0;
         proc_count   := 0;
         block_count  := 0;
-        clause_count := 0;
         call_count   := 0;
         top_of_stack := 0;
         in_init      := 0;
@@ -82,8 +81,6 @@ invoke := FALSE;
         end_procedure := end_procedure;
         begin_block := begin_block;
         end_block := end_block;
-        begin_clause := begin_clause;
-        end_clause := end_clause;
         note_procedure_origin := note_procedure_origin;
         set_label := set_label;
         jump := jump;
@@ -600,32 +597,6 @@ PROCEDURE note_procedure_origin (self: U;  p: Proc) =
     self.s_empty ();
     self.child.note_procedure_origin (p);
   END note_procedure_origin;
-
-(*----------------------------------------------------- condition clauses ---*)
-
-PROCEDURE begin_clause (self: U; l: Label;  condition: BOOLEAN) =
-  (* marks the beginning of an IF clause or statement *)
-  BEGIN
-    IF (self.proc_count <= 0) THEN
-      PutErr (self, "begin_clause not in procedure");
-    END;
-    self.s_empty ();
-    IF condition THEN
-      INC (self.clause_count);
-    END;
-    self.child.begin_clause (l, condition);
-  END begin_clause;
-
-PROCEDURE end_clause (self: U; l: Label) =
-  (* marks the ending of an IF statement *)
-  BEGIN
-    IF (self.clause_count > 0)
-      THEN DEC (self.clause_count);
-      ELSE PutErr (self, "missing begin_clause");
-    END;
-    self.s_empty ();
-    self.child.end_clause (l);
-  END end_clause;
 
 (*------------------------------------------------------------ statements ---*)
 

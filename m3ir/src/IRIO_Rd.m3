@@ -39,7 +39,7 @@ TYPE
   END;
 
 CONST
-  CmdMap = ARRAY [0..167] OF Cmd {
+  CmdMap = ARRAY [0..165] OF Cmd {
     Cmd {"begin_unit", begin_unit},
     Cmd {"end_unit", end_unit},
     Cmd {"import_unit", import_unit},
@@ -91,8 +91,6 @@ CONST
     Cmd {"end_procedure", end_procedure},
     Cmd {"begin_block", begin_block},
     Cmd {"end_block", end_block},
-    Cmd {"begin_clause", begin_clause},
-    Cmd {"end_clause", end_clause},
     Cmd {"note_procedure_origin", note_procedure_origin},
     Cmd {".", set_label},
     Cmd {"jump", jump},
@@ -1075,21 +1073,6 @@ PROCEDURE note_procedure_origin (VAR s: State) =
   BEGIN
     s.cg.note_procedure_origin (p);
   END note_procedure_origin;
-
-(*----------------------------------------------------- condition clauses ---*)
-
-PROCEDURE begin_clause (VAR s: State) =
-  VAR label     := Scan_label (s);
-      condition := Scan_bool (s);
-  BEGIN
-    s.cg.begin_clause (label, condition);
-  END begin_clause;
-
-PROCEDURE end_clause (VAR s: State) =
-  VAR label     := Scan_label (s);
-  BEGIN
-    s.cg.end_clause (label);
-  END end_clause;
 
 (*------------------------------------------------------------ statements ---*)
 

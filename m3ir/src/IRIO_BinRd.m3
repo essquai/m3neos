@@ -89,8 +89,6 @@ CONST
     Cmd {Bop.end_procedure, end_procedure},
     Cmd {Bop.begin_block, begin_block},
     Cmd {Bop.end_block, end_block},
-    Cmd {Bop.begin_clause, begin_clause},
-    Cmd {Bop.end_clause, end_clause},
     Cmd {Bop.note_procedure_origin, note_procedure_origin},
     Cmd {Bop.set_label, set_label},
     Cmd {Bop.jump, jump},
@@ -962,21 +960,6 @@ PROCEDURE note_procedure_origin (VAR s: State) =
   BEGIN
     s.cg.note_procedure_origin (p);
   END note_procedure_origin;
-
-(*----------------------------------------------------- condition clauses ---*)
-
-PROCEDURE begin_clause (VAR s: State) =
-  VAR label     := Scan_label (s);
-      condition := Scan_bool (s);
-  BEGIN
-    s.cg.begin_clause (label, condition);
-  END begin_clause;
-
-PROCEDURE end_clause (VAR s: State) =
-  VAR label     := Scan_label (s);
-  BEGIN
-    s.cg.end_clause (label);
-  END end_clause;
 
 (*------------------------------------------------------------ statements ---*)
 
