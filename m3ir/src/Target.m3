@@ -142,7 +142,7 @@ PROCEDURE Init (system: TEXT; in_OS_name: TEXT; backend_mode: M3BackendMode_t): 
 
     (* This is messy. See CsetjmpC.c. *)
     (* TODO: check if only for C backend *)
-    IF backend_mode IN BackendHostSet THEN
+    IF backend_mode = M3BackendMode_t.C THEN
       Setjmp := "m3_setjmp";
       Sigsetjmp := FALSE;
     ELSIF Solaris() THEN
@@ -153,7 +153,7 @@ PROCEDURE Init (system: TEXT; in_OS_name: TEXT; backend_mode: M3BackendMode_t): 
       Sigsetjmp := FALSE;
     END;
 
-    IF backend_mode IN BackendHostSet THEN
+    IF backend_mode = M3BackendMode_t.C THEN
       Typenames := TRUE;          (* on declare_param, etc. *)
     END;
 
@@ -183,7 +183,7 @@ PROCEDURE Init (system: TEXT; in_OS_name: TEXT; backend_mode: M3BackendMode_t): 
 	IF (TextUtils.StartsWith(system, "ALPHA") OR TextUtils.Contains(system, "64"))
 		AND NOT TextUtils.Contains(system, "32") THEN (* possibly IA64, Alpha *)
       Init64();
-    ELSIF backend_mode IN BackendHostSet THEN
+    ELSIF backend_mode # M3BackendMode_t.C THEN
       (* Change only alignment.  Size is always 64:
        * Aligning these types to 32 is incorrect on many but not all 32bit targets.
        * C backend cannot portably reduce alignment but it can portably increase
@@ -212,7 +212,7 @@ PROCEDURE Init (system: TEXT; in_OS_name: TEXT; backend_mode: M3BackendMode_t): 
 
     (* x86 and AMD64 allow unaligned loads/stores but converge C *)
 
-    IF NOT backend_mode IN BackendHostSet THEN
+    IF NOT backend_mode # M3BackendMode_t.C THEN
       IF IsX86orAmd64(system) THEN
         Allow_packed_byte_aligned := TRUE;
       END;
@@ -262,24 +262,28 @@ PROCEDURE Init (system: TEXT; in_OS_name: TEXT; backend_mode: M3BackendMode_t): 
 
 PROCEDURE InitCallingConventions(backend_mode: M3BackendMode_t;
                                  target_has_calling_conventions: BOOLEAN) =
-  VAR host := backend_mode IN BackendHostSet;
-  VAR wasm := backend_mode IN BackendBinaryenSet;
+  VAR llvm     := backend_mode IN BackendLlvmSet;
+  VAR binaryen := backend_mode IN BackendBinaryenSet;
 
   PROCEDURE New(name: TEXT; id: [0..1]): CallingConvention =
     VAR cc := NEW(CallingConvention, name := name);
     BEGIN
-      IF target_has_calling_conventions THEN
+      IF backend_mode = M3BackendMode_t.C OR target_has_calling_conventions THEN
         cc.m3cg_id            := id;
       ELSE
         cc.m3cg_id            := 0;
       END;
-      IF host THEN
+      IF backend_mode = M3BackendMode_t.C THEN
         cc.args_left_to_right := TRUE;
         cc.results_on_left    := TRUE;
         cc.standard_structs   := TRUE;
-      ELSIF wasm THEN
+      ELSIF llvm THEN
         cc.args_left_to_right := TRUE;
         cc.results_on_left    := FALSE;
+        cc.standard_structs   := TRUE;
+      ELSIF binaryen THEN
+        cc.args_left_to_right := TRUE;
+        cc.results_on_left    := TRUE;
         cc.standard_structs   := TRUE;
       ELSE (* gcc-derived back end. *)
         cc.args_left_to_right := TRUE;

@@ -1,6 +1,8 @@
 import ("m3fe")
 import ("m3make")
 import ("m3link")
+import ("m3ir")
+import ("m3C")
 
 Module ("Arg")
 Module ("Msg")

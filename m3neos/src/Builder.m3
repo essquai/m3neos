@@ -110,7 +110,6 @@ REVEAL
     m3backend_mode: Target.M3BackendMode_t; (* tells how to turn M3IR -> object *)
     m3backend     : ConfigProc;         (* translate M3IR -> ASM or OBJ *)
     m3wasm        : ConfigProc;         (* translate M3IR -> WASM/WAT *) 
-    m3host        : ConfigProc;         (* translate M3IR -> OBJ/ASM *) 
     m3llvm        : ConfigProc;         (* translate M3IR -> LLVM bitcode *) 
     llvmbackend   : ConfigProc;         (* translate llvm bitcode -> ASM or OBJ *)
     llvmopt       : ConfigProc;         (* optimize llvm bitcode *)
@@ -320,7 +319,6 @@ PROCEDURE CompileUnits (main     : TEXT;
     s.info_name   := M3Path.Join (NIL, nm.base, info_kind);
     s.m3backend   := GetConfigProc (s, "m3_backend", 4);
     s.m3wasm      := GetConfigProc (s, "m3wasm", 5); 
-    s.m3host      := GetConfigProc (s, "m3host", 5); 
     s.m3llvm      := GetConfigProc (s, "m3llvm", 4); 
     s.llvmbackend := GetConfigProc (s, "llvm_backend", 5);
     s.llvmopt     := GetConfigProc (s, "llvm_opt", 2);
@@ -1101,7 +1099,6 @@ PROCEDURE CompileEverything (s: State;  schedule: SourceList) =
   END CompileEverything;
 
 PROCEDURE CompileOne (s: State;  u: M3Unit.T) =
-  TYPE Mode_t = Target.M3BackendMode_t;
   VAR u_object: TEXT;
   BEGIN
     IF (u.compiling) THEN RETURN; END;
@@ -1126,7 +1123,7 @@ PROCEDURE CompileOne (s: State;  u: M3Unit.T) =
       | UK.IC, UK.MC       
         => Msg.UsageError("Intermediate code codegen TODO");
       | UK.C, UK.CPP       => CompileC (s, u);
-      | UK.IS, UK.MS, UK.S => CompileS (s, u);
+      | UK.S               => CompileS (s, u);
       | UK.IO, UK.MO, UK.O => CompileO (s, u);
       | UK.H               => CompileH (s, u);
       | UK.IG, UK.MG       => (*skip*)
@@ -1245,34 +1242,6 @@ PROCEDURE CompileC (s: State; u: M3Unit.T) =
     END;
   END CompileC;
 
-PROCEDURE CompileM3wasm (s: State; u: M3Unit.T) = 
-(* PRE: u.kind IN {UK.IC, UK.MC} *) 
-  TYPE Mode_t = Target.M3BackendMode_t;
-  VAR  mode := s.m3backend_mode; genasm : BOOLEAN;
-  BEGIN
-    Merge (s, u);
-
-    IF (u.object = NIL) OR Text.Equal (u.object, UnitPath (u)) THEN
-      (* already done *)
-      DebugF ("m3wasm ", u, " -> object = source");
-(* TODO        ^This name should not be hard-coded here. *) 
-      EVAL Utils.NoteModification (u.object);
-    ELSIF NOT ObjectIsStale (u) THEN
-      (* already done *)
-    ELSE 
-      IF mode IN Target.BackendBinaryenSet THEN
-        (* Currently, there are no such back ends. *) 
-          genasm := mode = Mode_t.BinaryenAsm;
-          EVAL RunM3Wasm (s, UnitPath (u), u.object, u.debug, u.optimize, genasm);
-          Utils.NoteNewFile (u.object);
-      ELSE
-        Msg.FatalError 
-          (NIL, "Compiler mode " & Target.BackendModeStrings [ mode ] 
-                & " cannot compile frontend output (.ic or .mc) files");
-      END (*CASE*);
-    END;
-  END CompileM3wasm; 
-
 PROCEDURE CompileH (s: State; u: M3Unit.T) =
 (* PRE: u.kind = UK.H. *) 
   BEGIN
@@ -1387,50 +1356,33 @@ PROCEDURE PushOneM3 (s: State;  u: M3Unit.T): BOOLEAN =
     codeGenOutName: TEXT := NIL;
 
     cm3IRName: TEXT := NIL;
+    llvmIRName: TEXT := NIL;
+    llvmIROptName : TEXT := NIL;
     wasmName: TEXT := NIL;
-    hostName: TEXT := NIL;
     CCodeName: TEXT := NIL;
-    asmName: TEXT := NIL;
     mode := s.m3backend_mode;
     boot := s.bootstrap_mode;
     need_merge := FALSE;
-    DoRunAsm : BOOLEAN := FALSE;
+    DoRunM3llvm : BOOLEAN := FALSE;
+    DoRunLlc :BOOLEAN := FALSE;
     DoRunM3wasm : BOOLEAN := FALSE;
-    DoRunHost : BOOLEAN := FALSE;
     DoWriteAsm : BOOLEAN := FALSE; (* Pass asm option to code generator. *)  
     DoRunC : BOOLEAN := FALSE; 
     ok := FALSE;
+    dbgOut, dbgIR, dbgWasm : TEXT := "<nil>";
   BEGIN
-    (* ASSERT mode # Mode_t.ExternalObject *)     (* mostly nonexistant, untested, but for m3cgcat *)
-    (* ASSERT mode # Mode_t.IntegratedAssembly *) (* nonexistant, untested *)
-
 (* The idea here is to push along the representation in one of a few sequences.
     u.object is where we stop.
     Where we stop and what sequence we take depends on the mode of the backend,
     and if we are bootstrapping. Bootstrapping runs later phases separately.
-    Such as assembler or C compiler.
-    "tmpC" is sometimes C (foo.m3.c, foo.i3.c), sometimes binary representation
-    of m3cg for input to m3cc backend ("foo.mc" or "foo.ic").
+    Such as an assembler or C compiler.
     Options include:
-      IntegratedObject        : m3 => o                            (NT/x86)
-      IntegratedAssembly      : m3 => asm => o                     (no such backends)
-      IntegratedAssembly boot : m3 => asm                          (no such backends)
-      ExternalObject          : m3 => mc => o                      (no such backends)
-      ExternalAssembly        : m3 => mc =>(using m3cc) asm => o
-      ExternalAssembly boot   : m3 => mc =>(using m3cc) asm
       C                       : m3 => c => o
       C boot                  : m3 => c
-      IntLlvmObj              : m3 =>(llvm-derived) o              (no such backends)
-      IntLlvmAsm              : m3 =>(llvm-derived) asm => o       (no such backends)
-      IntLlvmAsm boot         : m3 =>(llvm-derived) asm            (no such backends)
-      ExtLlvmObj              : m3 => mb =>(using llc) o           (no such backends)
-      ExtLlvmAsm              : m3 => mb =>(using llc) asm => o    (no such backends)
-      ExtLlvmAsm boot         : m3 => mb =>(using llc) asm         (no such backends)
-      StAloneLlvmObj          : m3 => mc =>(using m3llvm) mb =>(using llc) o 
-      StAloneLlvmAsm          : m3 => mc =>(using m3llvm) mb =>(using llc) asm => o 
-      StAloneLlvmAsm boot     : m3 => mc =>(using m3llvm) mb =>(using llc) asm  
-      StAloneWasm             : m3 => mc =>(using m3wasm) wasm
-      StAloneWasm boot        : m3 => mc =>(using m3wasm) wasm  
+      Llvm boot?              : m3 => ml (using m3cllvm)
+      Llvm host               : m3 => mc =>(using m3llvm) mb =>(using llc) o 
+      Llvm wasm               : m3 => mc =>(using m3llvm) mb =>(using llc) wasm
+      Binaryen                : m3 => mc =>(using m3byen) wasm
 *)
     u.link_info := NIL;
     ResetExports (s, u);
@@ -1438,28 +1390,21 @@ PROCEDURE PushOneM3 (s: State;  u: M3Unit.T): BOOLEAN =
     (* Plan what to run, what files to produce and remove. *)
     (* Always run cm3, which reads UnitPath(u) and writes cm3OutName *)  
     CASE mode OF 
-    | Mode_t.HostObj => 
-        hostName := u.object;
-        DoRunHost := TRUE; 
+    | Mode_t.Llvm => 
+        llvmIRName := LlvmIRNameForUnit (u);  
+        llvmIROptName := LlvmIROptNameForUnit (u);
+        DoRunM3llvm := TRUE; 
         codeGenOutName := u.object; 
-    | Mode_t.HostAsm =>
-        asmName  := AsmNameForUnit(u);
-        hostName := asmName;
-        DoRunHost := TRUE;
-        DoWriteAsm := TRUE;
-        DoRunAsm := TRUE;
-        codeGenOutName := u.object; 
-    | Mode_t.BinaryenObj => 
-        wasmName := WasmNameForUnit (u);  
-        DoRunM3wasm := TRUE; 
-        codeGenOutName := wasmName;
-        (* boot has no effect on this mode. *) 
-    | Mode_t.BinaryenAsm => 
+        DoRunLlc := NOT boot; 
+     | Mode_t.Binaryen => 
         wasmName := WasmNameForUnit (u);  
         DoRunM3wasm := TRUE; 
         codeGenOutName := wasmName;
     | Mode_t.C =>
-        (* ignore*)
+        CCodeName := M3Unit.FileName (u) & ".cpp";
+        cm3OutName := CCodeName; 
+        DoRunC := NOT boot;
+        (* C compiler takes care of assembling. *)
     END;
     
     (* External code generators always consume cm3IR. *)
@@ -1478,13 +1423,17 @@ PROCEDURE PushOneM3 (s: State;  u: M3Unit.T): BOOLEAN =
        and the absence of cross assembler/C compiler/linker.
     *)
     Temps_Add (temps, s, cm3IRName);
+    Temps_Add (temps, s, llvmIRName);
+    Temps_Add (temps, s, llvmIROptName); 
 
     (* C, assembly are always temporary except for "boot", per above. *)
     IF NOT boot THEN
-      Temps_Add (temps, s, asmName);
       Temps_Add (temps, s, CCodeName);
     END;
-    Msg.Debug("PushOneM3 cm3OutName ", cm3OutName, " cm3IRName " & cm3IRName, " wasmName " & wasmName);
+    IF cm3OutName # NIL THEN dbgOut := cm3OutName; END;
+    IF cm3IRName # NIL  THEN dbgIR := cm3IRName; END;
+    IF wasmName # NIL   THEN dbgWasm := wasmName; END;
+    Msg.Debug("PushOneM3 cm3OutName ", dbgOut, " cm3IRName " & dbgIR, " wasmName " & dbgWasm);
     ok := RunM3Front (s, u, cm3OutName);
     IF NOT ok THEN 
       Msg.Error (NIL, "m3front failed compiling: ", UnitPath (u));
@@ -1495,15 +1444,21 @@ PROCEDURE PushOneM3 (s: State;  u: M3Unit.T): BOOLEAN =
       TRY
         IF ok AND DoRunM3wasm THEN
           ok := RunM3Wasm (s, cm3IRName, wasmName, u.debug, u.optimize, DoWriteAsm);
+        END;
+        IF ok AND DoRunM3llvm THEN
+          ok := RunM3LlvmHost (s, cm3IRName, llvmIRName, u.debug, u.optimize);
         END; 
-        IF ok AND DoRunHost THEN
-          ok := RunM3Host (s, cm3IRName, hostName, u.debug, u.optimize, DoWriteAsm);
+        IF ok AND DoRunLlc THEN
+          IF u.optimize THEN
+            EVAL RunLlvmOpt(s, llvmIRName, llvmIROptName);
+            llvmIRName := llvmIROptName;
+          END;
+          ok := RunLlcBack 
+                 (s, llvmIRName, codeGenOutName, u.debug, u.optimize, 
+                  Asm := DoWriteAsm);
         END; 
         IF ok AND DoRunC THEN 
           ok := RunCC (s, CCodeName, u.object, TRUE, FALSE, s.include_path_empty);
-        END;
-        IF ok AND DoRunAsm THEN 
-          ok := RunAsm (s, asmName, u.object);
         END;
       FINALLY
         IF s.delayBackend THEN
@@ -2227,27 +2182,6 @@ PROCEDURE RunCC (s: State;  source, object: TEXT;  debug, optimize: BOOLEAN;
     RETURN NOT failed;
   END RunCC;
 
-PROCEDURE RunM3Back (s: State;  source, object: TEXT;
-                     debug, optimize: BOOLEAN): BOOLEAN (* Success. *) =
-  VAR failed: BOOLEAN;
-  BEGIN
-    ETimer.Push (M3Timers.pass_6);
-    s.machine.timer := M3Timers.pass_6;
-    StartCall (s, s.m3backend);
-    PushText (s, source);
-    PushText (s, object);
-    PushBool (s, optimize);
-    PushBool (s, debug);
-    failed := CallProc (s, s.m3backend);
-    IF failed THEN
-      s.compile_failed := TRUE;
-      Msg.Error (NIL, "m3cc (aka cm3cg) failed compiling: ", source);
-      IF NOT s.keep_files THEN Utils.Remove (object); END;
-    END;
-    ETimer.Pop ();
-    RETURN NOT failed;
-  END RunM3Back;
-
 PROCEDURE RunM3Wasm (s: State;  source, object: TEXT;
                      debug, optimize, genwat: BOOLEAN): BOOLEAN (* Success. *) =
   VAR failed: BOOLEAN;
@@ -2270,27 +2204,72 @@ PROCEDURE RunM3Wasm (s: State;  source, object: TEXT;
     RETURN NOT failed;
   END RunM3Wasm;
 
-PROCEDURE RunM3Host (s: State;  source, object: TEXT;
-                     debug, optimize, genasm: BOOLEAN): BOOLEAN (* Success. *) =
+PROCEDURE RunM3LlvmHost (s: State;  source, object: TEXT;
+                     debug, optimize: BOOLEAN): BOOLEAN (* Success. *) =
   VAR failed: BOOLEAN;
   BEGIN
-    ETimer.Push (M3Timers.m3host);
-    s.machine.timer := M3Timers.m3host;
-    StartCall (s, s.m3host);
+    ETimer.Push (M3Timers.m3llvm);
+    s.machine.timer := M3Timers.m3llvm;
+    StartCall (s, s.m3llvm);
     PushText (s, source);
     PushText (s, object);
     PushBool (s, optimize);
     PushBool (s, debug);
-    PushBool (s, genasm);
-    failed := CallProc (s, s.m3host);
+    failed := CallProc (s, s.m3llvm);
     IF failed THEN
       s.compile_failed := TRUE;
-      Msg.Error (NIL, "m3host failed compiling: ", source);
+      Msg.Error (NIL, "m3llvm failed compiling: ", source);
       IF NOT s.keep_files THEN Utils.Remove (object); END;
     END;
     ETimer.Pop ();
     RETURN NOT failed;
-  END RunM3Host;
+  END RunM3LlvmHost;
+
+PROCEDURE RunLlcBack 
+  (s: State;  source, object: TEXT; debug, optimize: BOOLEAN; Asm: BOOLEAN)
+: BOOLEAN (* Success. *) =
+  VAR failed: BOOLEAN;
+  VAR filetype: TEXT; 
+  BEGIN
+    ETimer.Push (M3Timers.llc);
+    s.machine.timer := M3Timers.llc;
+    StartCall (s, s.llvmbackend);
+    PushText (s, source);
+    PushText (s, object);
+    PushBool (s, optimize);
+    PushBool (s, debug);
+    IF Asm THEN filetype := "asm" 
+    ELSE filetype := "obj" 
+    END (*IF*);
+    PushText (s, filetype); 
+    failed := CallProc (s, s.llvmbackend);
+    IF failed THEN
+      s.compile_failed := TRUE;
+      Msg.Error (NIL, "llvm compiler (llc) failed compiling: ", source);
+      IF NOT s.keep_files THEN Utils.Remove (object); END;
+    END;
+    ETimer.Pop ();
+    RETURN NOT failed;
+  END RunLlcBack; 
+
+PROCEDURE RunLlvmOpt (s: State;  source, dest: TEXT) : BOOLEAN (* Success. *) =
+  VAR failed: BOOLEAN;
+  BEGIN
+    ETimer.Push (M3Timers.llvmopt);
+    s.machine.timer := M3Timers.llvmopt;
+    StartCall (s, s.llvmopt);
+    PushText (s, source);
+    PushText (s, dest);
+    failed := CallProc (s, s.llvmopt);
+    IF failed THEN
+      s.compile_failed := TRUE;
+      Msg.Error (NIL, "llvm compiler (opt) failed optimizing: ", source);
+      IF NOT s.keep_files THEN Utils.Remove (dest); END;
+    END;
+    ETimer.Pop ();
+    RETURN NOT failed;
+  END RunLlvmOpt; 
+
 
 PROCEDURE RunAsm (s: State;  source, object: TEXT): BOOLEAN (* Success. *) =
   VAR failed: BOOLEAN;
@@ -2366,15 +2345,17 @@ PROCEDURE GenerateCMain (s: State;  Main_O: TEXT) =
     END;
   END GenerateCMain;
 
-PROCEDURE GenerateCGMain (s: State;  Main_O: TEXT) =
+PROCEDURE GenerateCGMain (s: State;  <*UNUSED*>Main_O: TEXT) =
   TYPE Mode_t = Target.M3BackendMode_t;
-  VAR
+  VAR 
+  (*
     Main_MC  := M3Path.Join (NIL, M3Main, UK.MC);
     Main_MS  := M3Path.Join (NIL, M3Main, UK.MS);
     Main_XX  := M3Main & ".new";
     init_code: TEXT := NIL;
     time_O   := 0;
     time_MC  := 0;
+  *)
     mode     := s.m3backend_mode;
   BEGIN
     (* ASSERT mode # Mode_t.ExternalObject *)     (* mostly nonexistant, untested, but for m3cgcat *)
@@ -2383,45 +2364,14 @@ PROCEDURE GenerateCGMain (s: State;  Main_O: TEXT) =
     <* ASSERT NOT s.bootstrap_mode *>             (* BuildPgm => BuildBootProgram => never here *)
 
     CASE mode OF
-    | Mode_t.BinaryenObj,
-      Mode_t.BinaryenAsm,
-      Mode_t.HostObj,
-      Mode_t.HostAsm,
+    | Mode_t.Binaryen,
+      Mode_t.Llvm,
       Mode_t.C
     =>  (* TODO *)
       Msg.UsageError("GenerateCGMain TODO");
     END; (* CASE mode *)
   END GenerateCGMain;
 
-PROCEDURE GenCGMain (s: State;  object: TEXT) =
-  VAR
-    wr : Wr.T := NIL;
-    cg : M3IR.T := NIL;
-  BEGIN
-    ETimer.Push (M3Timers.genMain);
-    Msg.Commands ("generate ", object);
-    wr := Utils.OpenWriter (object, fatal := TRUE);
-    IF wr # NIL THEN
-      cg := M3Backend.Open (
-        s.result_name,
-        M3MainId, (*Only used by M3C, which won't happen here. *)
-        wr,
-        object,
-        s.m3env.sideIRName,
-        s.m3backend_mode);
-    END;
-    IF cg # NIL THEN
-      MxGen.GenerateMain (s.link_base, NIL, cg, Msg.level >= Msg.Level.Debug,
-                          s.gui AND (s.target_oskind = M3Path.OSKind.Win32),
-                          s.lazy_init);
-      M3Backend.Close(cg);
-    ELSE
-      IF (NOT s.keep_files) THEN Utils.Remove (object); END;
-      Msg.FatalError (NIL, "couldn't generate ", object);
-    END;
-    Utils.CloseWriter (wr, object);
-    ETimer.Pop ();
-  END GenCGMain;
 (*------------------------------------------------ compilations and links ---*)
 
 PROCEDURE BuildCProgram (s: State;  shared: BOOLEAN) =
@@ -3201,64 +3151,88 @@ PROCEDURE Cm3IRNameForUnit (u: M3Unit.T): TEXT =
   BEGIN
     CASE ext OF
     | UK.I3, UK.IC => ext := UK.IC;
-    | UK.IS        => ext := UK.IS;
     | UK.M3, UK.MC => ext := UK.MC;
-    | UK.MS        => ext := UK.MS;
     ELSE <* ASSERT FALSE *>
     END;
     RETURN M3Path.Join (NIL, M3ID.ToText (u.name), ext);
   END Cm3IRNameForUnit;
+
+PROCEDURE LlvmIRNameForUnit (u: M3Unit.T): TEXT =
+  VAR ext := u.kind;
+  BEGIN
+    CASE ext OF
+    | UK.I3, UK.IC => ext := UK.IB;
+    | UK.M3, UK.MC => ext := UK.MB;
+    ELSE <* ASSERT FALSE *>
+    END;
+    RETURN M3Path.Join (NIL, M3ID.ToText (u.name), ext);
+  END LlvmIRNameForUnit;
+
+  PROCEDURE LlvmIROptNameForUnit (u: M3Unit.T): TEXT =
+  VAR ext := u.kind;
+  BEGIN
+    CASE ext OF
+    | UK.I3, UK.IC => ext := UK.IB;
+    | UK.M3, UK.MC => ext := UK.MB;
+    ELSE <* ASSERT FALSE *>
+    END;
+    RETURN M3Path.Join (NIL, M3ID.ToText (u.name) & "_opt", ext);
+  END LlvmIROptNameForUnit;
 
 PROCEDURE WasmNameForUnit (u: M3Unit.T): TEXT =
   VAR ext := u.kind;
   BEGIN
     CASE ext OF
     | UK.I3, UK.IC => ext := UK.IW;
-    | UK.IS        => ext := UK.IS;
     | UK.M3, UK.MC => ext := UK.MW;
-    | UK.MS        => ext := UK.MS;
     ELSE <* ASSERT FALSE *>
     END;
     RETURN M3Path.Join (NIL, M3ID.ToText (u.name), ext);
   END WasmNameForUnit;
 
-PROCEDURE AsmNameForUnit (u: M3Unit.T): TEXT =
-  VAR ext := u.kind;
-  BEGIN
-    CASE ext OF
-    | UK.I3, UK.IC => ext := UK.IS;
-    | UK.M3, UK.MC => ext := UK.MS;
-    ELSE <* ASSERT FALSE *>
-    END;
-    RETURN M3Path.Join (NIL, M3ID.ToText (u.name), ext);
-  END AsmNameForUnit;
-
 PROCEDURE FinalNameForUnitInternal (s: State; u: M3Unit.T; boot: BOOLEAN): TEXT =
 (* Name of final file to be produced. *) 
   VAR ext := u.kind;
       mode := s.m3backend_mode;
-      wasm := mode IN Target.BackendBinaryenSet; 
-      host := mode IN Target.BackendHostSet;
+      wasm := mode IN Target.BackendBinaryenSet;
+      llvm := mode IN Target.BackendLlvmSet; 
+      C := mode IN Target.BackendCSet;
   BEGIN
-    (* TODO handle boot mode *)
-    IF host THEN 
-      (* Native objects *) 
+    IF NOT boot THEN
+      (* Final output is object modules. *)
       CASE ext OF
-      | UK.I3, UK.IC => ext := UK.IO;
-      | UK.M3, UK.MC => ext := UK.MO;
-      | UK.IO, UK.IV, 
-        UK.MO, UK.MV, 
+      | UK.I3, UK.IC, UK.IB => ext :=  UK.IO;
+      | UK.M3, UK.MC, UK.MB => ext :=  UK.MO;
+      | UK.C, UK.CPP, UK.S  => ext :=  UK.O;
+      | UK.IO, UK.MO, UK.O  => RETURN M3Unit.FileName (u);
+      ELSE RETURN NIL;
+      END;
+    ELSIF C THEN
+      (* Bootstrap with C integrated backend, final boot output is .c files. *)
+      CASE ext OF
+      | UK.I3, UK.M3 => RETURN M3Unit.FileName (u) & ".cpp";
+      | UK.IO, UK.IB,
+        UK.MO, UK.MB,
         UK.C, UK.CPP, UK.H, UK.S, UK.O => RETURN M3Unit.FileName (u);
       ELSE RETURN NIL;
       END;
-
+    ELSIF llvm THEN
+       (* Doesn't produce assembly, final boot output is input to llvm. *)
+      CASE ext OF
+      | UK.I3                      =>  ext :=  UK.IB;
+      | UK.M3                      =>  ext :=  UK.MB;
+      | UK.IC, UK.IB, UK.IO,
+        UK.MC, UK.MB, UK.MO,
+        UK.C, UK.CPP, UK.H, UK.S, UK.O => RETURN M3Unit.FileName (u);
+      ELSE RETURN NIL;
+      END;
     ELSIF wasm THEN
       (* WASM objects *)
       CASE ext OF
       | UK.I3, UK.IC =>  ext :=  UK.IW;
       | UK.M3, UK.MC =>  ext :=  UK.MW;
-      | UK.IS, UK.IO, UK.IW, 
-        UK.MS, UK.MO, UK.MW,
+      | UK.IO, UK.IW, 
+        UK.MO, UK.MW,
         UK.H, UK.S, UK.O, UK.C, UK.CPP => RETURN M3Unit.FileName (u);
       ELSE RETURN NIL;
       END;

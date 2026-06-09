@@ -1,0 +1,18 @@
+% Copyright (C) 1994, Digital Equipment Corporation
+% All rights reserved.
+% See the file COPYRIGHT for a full description.
+%
+% Last modified on Wed Dec 14 14:42:15 PST 1994 by kalsow 
+%      modified on Mon Sep 26 14:44:07 PDT 1994 by isard 
+
+
+import ("libm3")
+import ("m3ir")
+import ("set")
+
+Module    ("M3C")
+interface ("M3CConv")
+c_source  ("M3CConv")
+
+build_standalone ()
+Library ("m3C")

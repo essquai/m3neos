@@ -25,6 +25,9 @@ Module ("M3Timers")
 Module    ("M3IR")
 Interface ("M3IR_Asm")
 Module    ("M3IR_Check")
+Module ("M3IR_MultiPass")
+Module ("M3IR_DoNothing")
+Module ("M3IR_AssertFalse")
 
 Module ("IRIO_Binary")
 Module ("IRIO_Tee")
@@ -35,9 +38,6 @@ Module ("IRIO_Wr")
 %% Module ("M3CG_Clean")
 
 
-%Module ("M3CG_MultiPass")
-%Module ("M3CG_DoNothing")
-%Module ("M3CG_AssertFalse")
 Module ("M3RT")
 
 build_standalone ()

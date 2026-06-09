@@ -390,7 +390,7 @@ PROCEDURE Check (t: T;  VAR cs: Value.CheckState) =
       END;
     END;
 
-    t.qualName := Value.GlobalName(t);
+    t.qualName := Value.GlobalName(t, dots := FALSE);
     CheckTrace (t.trace, cs);
   END Check;
 

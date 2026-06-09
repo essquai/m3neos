@@ -6,9 +6,10 @@
 
 MODULE M3Backend;
 
+IMPORT M3C;
 IMPORT Msg, Utils;
-IMPORT M3IR, M3IR_Asm, IRIO_BinWr, M3ID, Target;
-IMPORT Text, Wr;
+IMPORT M3IR, M3IR_Asm, IRIO_BinWr, IRIO_Tee, M3ID, Target;
+IMPORT Text, Thread, Wr;
 
 VAR
   log_wr   : Wr.T        := NIL;
@@ -17,7 +18,6 @@ VAR
   ir_wr    : Wr.T        := NIL;
   ir_name  : TEXT        := NIL;
 
-(*
 PROCEDURE TeeBinWr (cg: M3IR_Asm.Public; f_ir_name: TEXT): M3IR_Asm.Public =
   VAR result: M3IR_Asm.Public;
   BEGIN
@@ -29,7 +29,7 @@ PROCEDURE TeeBinWr (cg: M3IR_Asm.Public; f_ir_name: TEXT): M3IR_Asm.Public =
     result := IRIO_Tee.New (cg, IRIO_BinWr.New (ir_wr));
     RETURN result;
   END TeeBinWr;
-*)
+
 PROCEDURE BinWr (f_ir_name: TEXT): M3IR_Asm.Public =
   VAR result: M3IR_Asm.Public;
   BEGIN
@@ -43,14 +43,38 @@ PROCEDURE BinWr (f_ir_name: TEXT): M3IR_Asm.Public =
   END BinWr;
 
 (* EXPORTED: *)
-PROCEDURE Open (<* UNUSED *> library (* or program *): TEXT;
-                <* UNUSED *> source_base_name (* lacks .m3 or .i3 *): M3ID.T;
-                <* UNUSED *> target_wr: Wr.T;
+PROCEDURE Open (library (* or program *): TEXT;
+                source_base_name (* lacks .m3 or .i3 *): M3ID.T;
+                target_wr: Wr.T;
                 target_name (* Has suffix. *): TEXT;
                 f_ir_name (* Has suffix .ic or .mc *): TEXT;
                 backend_mode: Target.M3BackendMode_t
                ): M3IR.T =
+  VAR cgen: M3IR_Asm.Public := NIL;
   BEGIN
+
+    (* C backend: *)
+    IF backend_mode = Target.M3BackendMode_t.C THEN
+      cgen := M3C.New (library, source_base_name, target_wr, target_name);
+      (* cg.comment would not appear at the top because
+       * earlier passes ignore it
+       *)
+      TRY
+        Wr.PutText(target_wr, "// library:");
+        Wr.PutText(target_wr, library);
+        Wr.PutText(target_wr, "\n// source_base_name:");
+        Wr.PutText(target_wr, M3ID.ToText(source_base_name));
+        Wr.PutText(target_wr, "\n// target_name:");
+        Wr.PutText(target_wr, target_name);
+        Wr.PutText(target_wr, "\n");
+        RETURN TeeBinWr (cgen, f_ir_name);
+      EXCEPT
+      | Wr.Failure (args) =>
+          Msg.FatalError (args, "unable to write IR file: ", f_ir_name);
+      | Thread.Alerted =>
+          Msg.FatalError (NIL, "unable to write IR file: ", f_ir_name);
+      END;
+    END;
 
     (* Binaryen backend *)
     IF backend_mode IN Target.BackendBinaryenSet THEN
@@ -60,21 +84,19 @@ PROCEDURE Open (<* UNUSED *> library (* or program *): TEXT;
         log_wr := Utils.OpenWriter (log_name, fatal := TRUE);
       END;
       RETURN BinWr (target_name);
-      (* RETURN TeeBinWr (LLGen.New (log_wr,backend_mode), f_ir_name); *)
     END;
 
-    (* Host backend *)
-    IF backend_mode IN Target.BackendHostSet THEN
+    (* Llvm backend *)
+    IF backend_mode IN Target.BackendLlvmSet THEN
       Msg.Info("M3Backend.Open Host f_ir_name", f_ir_name, Wr.EOL);
       IF (Msg.level >= Msg.Level.Verbose) THEN
         log_name := target_name & "log";
         log_wr := Utils.OpenWriter (log_name, fatal := TRUE);
       END;
       RETURN BinWr (target_name);
-      (* RETURN TeeBinWr (LLGen.New (log_wr,backend_mode), f_ir_name); *)
     END;
 
-    (* default backend? *)
+    (* There is no default *)
     Msg.Info("M3Backend.Open NIL f_ir_name", f_ir_name, Wr.EOL);
     RETURN NIL;
   END Open;

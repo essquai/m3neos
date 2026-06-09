@@ -1,0 +1,14 @@
+import("libm3")
+import("m3ir")
+import("m3make")
+import("llvm18api")
+include("version.quake")
+version_impl("Version")
+
+module("LLVM_HOST")
+
+implementation("Main")
+
+%build_standalone()
+
+Program("m3llhost")

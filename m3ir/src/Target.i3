@@ -37,48 +37,41 @@ CONST
 
 TYPE
   M3BackendMode_t =
-  {
-    BinaryenObj,   (* "0"  -- call m3en to produce wasm            *)
-    BinaryenAsm,   (* "1"  -- call m3en to produce wasm text       *)
-    HostObj,       (* "2"  -- call m3back to produce native object *)
-    HostAsm,       (* "3"  -- call m3back to produce assembly      *)
-    C              (* "4"  -- co-exist with mm3                    *)
+  { C,          (* "0"  -- use M3CGen to produce C       *)
+    Llvm,       (* "1"  -- call m3llc to produce bitcode *)
+    Binaryen    (* "2"  -- call m3byen to produce wasm   *)
   };
 
 CONST
   BackendModeStrings = ARRAY M3BackendMode_t OF TEXT
-  { "BinaryenObj",
-    "BinaryenAsm",
-    "HostObj",
-    "HostObj",
-    "C"
+  { "C",
+    "Llvm",
+    "Binaryen"
   };
 
   TYPE MT = M3BackendMode_t; 
 
-  CONST BackendBinaryenSet = SET OF M3BackendMode_t 
-    { MT.BinaryenObj, MT.BinaryenAsm };
-    (* WASM vi Binaryen API *)
+  CONST BackendBinaryenSet = SET OF M3BackendMode_t { MT.Binaryen };
+    (* WASM via Binaryen API *)
 
-  CONST BackendHostSet = SET OF M3BackendMode_t 
-    { MT.HostObj, MT.HostAsm }; 
-    (* Native via libgccit *)
+  CONST BackendLlvmSet = SET OF M3BackendMode_t { MT.Llvm }; 
+    (* Native OR Wasm via Llc *)
 
+  CONST BackendCSet = SET OF M3BackendMode_t { MT.C };
+    (* Modes using the C-generating code generator plus a C compiler *)
 
   CONST BackendSet = SET OF M3BackendMode_t 
     {
-      MT.BinaryenObj,
-      MT.BinaryenAsm,
-      MT.HostObj,
-      MT.HostAsm,
-      MT.C
+      MT.C,
+      MT.Llvm,
+      MT.Binaryen
     }; 
   
 
 (*-------------------------------------------------------- initialization ---*)
 
 PROCEDURE Init 
-  (system: TEXT; osname := "POSIX"; backend_mode := M3BackendMode_t.BinaryenObj)
+  (system: TEXT; osname := "POSIX"; backend_mode := M3BackendMode_t.C)
 : BOOLEAN;
 (* Initialize the variables of this interface to reflect the architecture
    of "system".  Returns TRUE iff the "system" was known and the initialization

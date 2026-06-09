@@ -2349,7 +2349,7 @@ PROCEDURE GenM3Exports (t: T;  header: TEXT)
         WHILE (u # NIL) DO
           IF (NOT u.imported) THEN
             CASE u.kind OF
-            | UK.Unknown, UK.IV, UK.IC, UK.IS, UK.MV, UK.MC, UK.MS, UK.PGM, UK.LIBX,
+            | UK.Unknown, UK.IV, UK.IC, UK.IB, UK.MV, UK.MC, UK.MB, UK.PGM, UK.LIBX,
               UK.PGMX, UK.IO, UK.MO, UK.O =>
                 <*ASSERT KindTag[u.kind] = NIL *>
             | UK.I3, UK.M3, UK.IG, UK.MG, UK.C, UK.CPP, UK.H, UK.W, UK.S, UK.IW, UK.MW =>

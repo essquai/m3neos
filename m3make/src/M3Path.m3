@@ -21,20 +21,20 @@ TYPE
 
 CONST
   Suffix = ARRAY OSKind OF SMap {
-  (* Unix *)       SMap { "", ".i3", "_i.wat", ".ic", "_i.s", "_i.o", "_i.wasm",
-                          ".m3", "_m.wat", ".mc", "_m.s", "_m.o", "_m.wasm",
+  (* Unix *)       SMap { "", ".i3", "_i.wat", ".ic", ".ib", "_i.o", "_i.wasm",
+                          ".m3", "_m.wat", ".mc", ".mb", "_m.o", "_m.wasm",
                           ".ig", ".mg", ".c", ".cpp", ".h", ".wat", ".s",
                           ".o", ".a", ".a", ".m3x", "", ".mx", ".tmpl" },
-  (* GrumpyUnix *) SMap { "", ".i3", "_i.wat", ".ic", "_i.s", "_i.o", "_i.wasm",
-                          ".m3", "_m.wat", ".mc", "_m.s", "_m.o", "_m.wasm",
+  (* GrumpyUnix *) SMap { "", ".i3", "_i.wat", ".ic", ".ib", "_i.o", "_i.wasm",
+                          ".m3", "_m.wat", ".mc", ".mb", "_m.o", "_m.wasm",
                           ".ig", ".mg", ".c", ".cpp", ".h", ".wat", ".s",
                           ".o", ".a", ".a", ".m3x", "", ".mx", ".tmpl" },
-  (* Win32 *)      SMap { "", ".i3", "_i.wat", ".ic", ".is", ".io", ".iw",
-                          ".m3", "_m.wat", ".mc", ".ms", ".mo", ".mw",
+  (* Win32 *)      SMap { "", ".i3", "_i.wat", ".ic", ".i3.bc", ".io", ".iw",
+                          ".m3", "_m.wat", ".mc", ".m3.bc", ".mo", ".mw",
                           ".ig", ".mg", ".c", ".cpp", ".h", ".wat", ".s",
                           ".obj",".lib",".lib",".m3x",".exe",".mx",".tmpl" },
-  (* C++BackendWithAutomake *) SMap { "", ".i3", "_i.wat", ".ic", ".i3.s", ".i3.o", ".i3.w",
-                          ".m3", "_m.wat", ".mc", ".m3.s", ".m3.o", "m3.w",
+  (* C++BackendWithAutomake *) SMap { "", ".i3", "_i.wat", ".ic", ".i3.bc", ".i3.o", ".i3.w",
+                          ".m3", "_m.wat", ".mc", ".m3.bc", ".m3.o", "m3.w",
                           ".ig", ".mg", ".c", ".cpp", ".h", ".wat", ".s",
                           ".o", ".a", ".a", ".m3x", "", ".mx", ".tmpl" }
   };
