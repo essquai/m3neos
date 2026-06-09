@@ -713,7 +713,7 @@ CONST
     "  -pb <n>        allow <n> parallelism in running back-end (experimental)",
     "",
     "environment variables:",
-    "  M3CONFIG       platform dependent configuration file to use (cm3.cfg)",
+    "  M3_CONFIG      platform dependent configuration file to use (cm3.cfg)",
     "                 used if no suitable file is found in the local package",
     "  QUAKE_SHELL    shell to be used by the quake interpreter for exec()",
     "  QUAKE_SHELL_OPTION command option for quake shell (-c, /c)",

@@ -65,7 +65,8 @@ VAR defs: TextTextTbl.T;
         
         (* DefineIfNotDefined: overridable from command line with -D *)
 
-        DefineIfNotDefined (mach, "TARGET", MxConfig.HOST());
+        (* TARGET can be x86_64 or wasm32 - defined by the site *)
+        (* DefineIfNotDefined (mach, "TARGET", MxConfig.HOST()); *)
         DefineIfNotDefined (mach, "OS_TYPE", MxConfig.HOST_OS_TYPE_TEXT());
         DefineIfNotDefined (mach, "WORD_SIZE", Fmt.Int(BITSIZE(INTEGER)));
 

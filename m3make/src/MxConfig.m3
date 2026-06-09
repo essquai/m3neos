@@ -59,7 +59,7 @@ PROCEDURE FindConfig () =
     IF TryConfig ("..", "src", Filename) THEN RETURN END;
 
     (* try the M3CONFIG environment variable *)
-    txt := QMachine.GetEnv (NIL, "M3CONFIG");
+    txt := QMachine.GetEnv (NIL, "M3_CONFIG");
     IF (txt # NIL) THEN
       IF TryConfig (txt) THEN RETURN END;
       IF TryConfig (txt, Filename) THEN RETURN END;
@@ -77,9 +77,8 @@ PROCEDURE FindConfig () =
     IF found THEN RETURN END;
 
     (* try the etc directories *)
-    IF TryConfig("/usr/local/cm3/etc", Filename) THEN RETURN END;
-    IF TryConfig("/usr/cm3/etc", Filename) THEN RETURN END; 
-    IF TryConfig("/cm3/etc", Filename) THEN RETURN END; 
+    IF TryConfig("/usr/local/m3neos/etc", Filename) THEN RETURN END;
+    IF TryConfig("/usr/m3neos/etc", Filename) THEN RETURN END; 
     IF TryConfig("/usr/contrib/etc", Filename) THEN RETURN END; 
     IF TryConfig("/usr/local/etc", Filename) THEN RETURN END; 
     IF TryConfig("/usr/etc", Filename) THEN RETURN END; 

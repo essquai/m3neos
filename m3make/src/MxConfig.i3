@@ -6,7 +6,7 @@ INTERFACE MxConfig;
 TYPE OS_TYPE = {POSIX, WIN32};
 
 CONST
-    Filename = "mm3.cfg";
+    Filename = "m3neos.cfg";
     HOST_PATH_SEP = "/";
 
 PROCEDURE HOST() : TEXT;

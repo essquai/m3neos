@@ -110,7 +110,7 @@ REVEAL
     m3backend_mode: Target.M3BackendMode_t; (* tells how to turn M3IR -> object *)
     m3backend     : ConfigProc;         (* translate M3IR -> ASM or OBJ *)
     m3wasm        : ConfigProc;         (* translate M3IR -> WASM/WAT *) 
-    m3llvm        : ConfigProc;         (* translate M3IR -> LLVM bitcode *) 
+    m3llhost      : ConfigProc;         (* translate M3IR -> LLVM bitcode *) 
     llvmbackend   : ConfigProc;         (* translate llvm bitcode -> ASM or OBJ *)
     llvmopt       : ConfigProc;         (* optimize llvm bitcode *)
     c_compiler    : ConfigProc;         (* compile C code *)
@@ -289,12 +289,12 @@ PROCEDURE CompileUnits (main     : TEXT;
 
     s.target := GetConfigItem (s, "TARGET");
 
-    value := GetDefn (s, "M3_BACKEND_MODE");
+    value := GetDefn (s, "M3_BACKEND");
     IF value = NIL THEN
       value := GetDefn (s, "BACKEND_MODE");
     END;
     IF value = NIL THEN
-        ConfigErr (s, "BACKEND_MODE or M3_BACKEND_MODE", "not defined");
+        ConfigErr (s, "BACKEND_MODE or M3_BACKEND", "not defined");
     END;
     s.m3backend_mode := ConvertBackendModeStringToEnum(s, value);
     Target.BackendMode := s.m3backend_mode;
@@ -319,7 +319,7 @@ PROCEDURE CompileUnits (main     : TEXT;
     s.info_name   := M3Path.Join (NIL, nm.base, info_kind);
     s.m3backend   := GetConfigProc (s, "m3_backend", 4);
     s.m3wasm      := GetConfigProc (s, "m3wasm", 5); 
-    s.m3llvm      := GetConfigProc (s, "m3llvm", 4); 
+    s.m3llhost    := GetConfigProc (s, "m3llhost", 4); 
     s.llvmbackend := GetConfigProc (s, "llvm_backend", 5);
     s.llvmopt     := GetConfigProc (s, "llvm_opt", 2);
     s.c_compiler  := GetConfigProc (s, "compile_c", 5);
@@ -1379,9 +1379,9 @@ PROCEDURE PushOneM3 (s: State;  u: M3Unit.T): BOOLEAN =
     Options include:
       C                       : m3 => c => o
       C boot                  : m3 => c
-      Llvm boot?              : m3 => ml (using m3cllvm)
-      Llvm host               : m3 => mc =>(using m3llvm) mb =>(using llc) o 
-      Llvm wasm               : m3 => mc =>(using m3llvm) mb =>(using llc) wasm
+      Llvm boot?              : m3 => ml (using m3llhost)
+      Llvm host               : m3 => mc =>(using m3llhost) mb =>(using llc) o 
+      Llvm wasm               : m3 => mc =>(using m3llhost) mb =>(using llc) wasm
       Binaryen                : m3 => mc =>(using m3byen) wasm
 *)
     u.link_info := NIL;
@@ -2208,17 +2208,17 @@ PROCEDURE RunM3LlvmHost (s: State;  source, object: TEXT;
                      debug, optimize: BOOLEAN): BOOLEAN (* Success. *) =
   VAR failed: BOOLEAN;
   BEGIN
-    ETimer.Push (M3Timers.m3llvm);
-    s.machine.timer := M3Timers.m3llvm;
-    StartCall (s, s.m3llvm);
+    ETimer.Push (M3Timers.m3llhost);
+    s.machine.timer := M3Timers.m3llhost;
+    StartCall (s, s.m3llhost);
     PushText (s, source);
     PushText (s, object);
     PushBool (s, optimize);
     PushBool (s, debug);
-    failed := CallProc (s, s.m3llvm);
+    failed := CallProc (s, s.m3llhost);
     IF failed THEN
       s.compile_failed := TRUE;
-      Msg.Error (NIL, "m3llvm failed compiling: ", source);
+      Msg.Error (NIL, "m3llhost failed compiling: ", source);
       IF NOT s.keep_files THEN Utils.Remove (object); END;
     END;
     ETimer.Pop ();
