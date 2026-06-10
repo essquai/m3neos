@@ -76,6 +76,11 @@ PROCEDURE FindConfig () =
     FindConfigInPath (txt);
     IF found THEN RETURN END;
 
+    (* try etc peer directories. *)
+    FindConfigInEtc (txt);
+    IF found THEN RETURN END;
+
+
     (* try the etc directories *)
     IF TryConfig("/usr/local/m3neos/etc", Filename) THEN RETURN END;
     IF TryConfig("/usr/m3neos/etc", Filename) THEN RETURN END; 
@@ -115,12 +120,56 @@ PROCEDURE FindConfigInPath (txt: TEXT) =
     END;
   END FindConfigInPath;
 
+PROCEDURE FindConfigInEtc (txt: TEXT) =
+  VAR
+    s0, s1: INTEGER;
+    sep: CHAR;
+    etc: Pathname.Arcs;
+  BEGIN
+    (* what's the convention for search paths?   Unix or Win32 *)
+    CONST XX = ARRAY BOOLEAN OF CHAR { ';', ':' };
+    BEGIN
+      sep := XX [Text.Equal (Pathname.Join ("a", "b", NIL), "a/b")];
+    END;
+
+    (* effectively arg[0]/../etc *)
+    TRY
+      etc := Pathname.Decompose(Params.Get(0));
+      IF etc.get(0) # NIL OR etc.size() > 2 THEN
+        EVAL etc.remhi(); EVAL etc.remhi(); etc.addhi("etc");
+        IF TryConfig(Pathname.Compose(etc), Filename) THEN RETURN END;
+      END;
+    EXCEPT
+      Pathname.Invalid =>
+    END;
+
+    IF (txt # NIL) THEN
+      s0 := 0;
+      WHILE (s0 < Text.Length (txt)) DO
+        s1 := Text.FindChar (txt, sep, s0);
+        IF (s1 < 0) THEN s1 := Text.Length (txt); END;
+        IF (s0 < s1) THEN
+          TRY
+            etc := Pathname.Decompose(Text.Sub (txt, s0, s1-s0));
+            IF etc.size() > 2 THEN
+              EVAL etc.remhi(); etc.addhi("etc");
+              IF TryConfig (Pathname.Compose(etc), Filename) THEN RETURN END;
+            END;
+          EXCEPT
+            Pathname.Invalid =>
+          END;
+        END;
+        s0 := s1 + 1;
+      END;
+    END;
+  END FindConfigInEtc;
+
 PROCEDURE TryConfig (a, b, c: TEXT := NIL): BOOLEAN =
   BEGIN
     config := a;
     IF (b # NIL) THEN config := Pathname.Join (config, b, NIL); END;
     IF (c # NIL) THEN config := Pathname.Join (config, c, NIL); END;
-    found := M3File.IsReadable (config);
+    found := M3File.IsReadable (config) AND NOT M3File.IsDirectory(config);
     RETURN found;
   END TryConfig;
 
