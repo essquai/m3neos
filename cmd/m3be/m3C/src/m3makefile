@@ -6,9 +6,9 @@
 %      modified on Mon Sep 26 14:44:07 PDT 1994 by isard 
 
 
-import ("libm3")
+import ("neolib")
 import ("m3ir")
-import ("set")
+import ("neoset")
 
 Module    ("M3C")
 interface ("M3CConv")

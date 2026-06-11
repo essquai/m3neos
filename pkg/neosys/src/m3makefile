@@ -1,0 +1,75 @@
+% Copyright (C) 1992, Digital Equipment Corporation
+% All rights reserved.
+% See the file COPYRIGHT for a full description.
+%
+% Last modified on Wed Aug 30 14:21:08 PDT 1995 by steveg
+%      modified on Sat Aug 20 15:11:54 PDT 1994 by kalsow
+%      modified on Tue Aug 24 15:08:42 PDT 1993 by heydon
+%      modified on Mon May 24 12:00:19 PDT 1993 by swart
+%      modified on Fri May  7 12:06:08 PDT 1993 by mjordan
+%      modified on Thu Dec 31 16:23:49 PST 1992 by mcjones
+%      modified on Wed May 20 21:18:03 PDT 1992 by muller
+%      modified on Fri Feb 28 13:50:29 PST 1992 by meehan
+
+%------------------------------------------------------------------------------
+
+h_source("unix/Common/m3unix")
+h_source("m3core")
+
+%----------------------------------------------- machine dependent packages ---
+
+include_dir ("Csupport")
+include_dir ("runtime")
+include_dir ("thread")
+if not defined ("NOPTHREAD") and equal (OS_TYPE, "POSIX") and not equal (TARGET_OS, "CYGWIN")
+  include_dir ("coroutine")
+end
+
+% Declare all of the Win32 types, constants, functions for all platforms.
+% This can be useful, for example, to build mklib hosted on other platforms.
+% Mklib clones some of this as a workaround.
+% Frontend accepts the Win32 calling conventions for all targets, usually ignoring them.
+%include_dir ("win32")
+
+include_dir ("unix")
+
+include_dir ("C")
+include_dir ("float")
+include_dir ("time")
+
+%--------------------------------------------- machine independent packages ---
+
+include_dir ("convert")
+include_dir ("text")
+include_dir ("fingerprint")
+include_dir ("main")
+include_dir ("weakref")
+include_dir ("word")
+include_dir ("types")
+include_dir ("swap")
+% include_dir ("atomic")  DISABLE UNTIL I CHECK IN THE COMPILER FRONT-END FIXES -- Tony
+
+% m3_option ("-times")
+
+% These are special objects.
+% Mainly they are to avoid importing data on Windows.
+% i.e. They are always statically linked.
+%
+% But hand.obj might also be useful on non-Windows.
+% hand.obj contains helper functions for set manipulation,
+% referenced by some backends. Dynamic linking it should be ok,
+% but the functions have also churned through the years and static
+% linking might provide better compatibility. Todo.
+%
+% Failure to static link Uconstants on Windows is quite fatal,
+% due to TRY alloca(m3_jumpbuf_size) and m3_jumpbuf_size is in Uconstants.obj.
+% Todo: Attempt various kinds of "passthrough" in C backend.
+%
+% The values could be output by the backend, or even the generated C
+% include the native headers and reference the native symbols.
+%
+LibdExport("hand" & { "WIN32" : ".obj", "POSIX" : ".o"  }{OS_TYPE})
+LibdExport("Uconstants" & { "WIN32" : ".obj", "POSIX" : ".o"  }{OS_TYPE})
+
+
+Library("neosys")

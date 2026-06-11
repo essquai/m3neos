@@ -1,0 +1,6 @@
+import("neolib")
+
+implementation("Main")
+build_standalone()
+
+program("test")

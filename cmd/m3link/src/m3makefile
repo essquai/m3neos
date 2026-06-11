@@ -6,7 +6,7 @@
 % Last modified on Wed Aug  3 13:58:41 PDT 1994 by kalsow
 %      modified on Wed May 26 11:51:10 PDT 1993 by muller
 
-import ("libm3")
+import ("neolib")
 import ("m3ir")
 
 Module ("Mx")

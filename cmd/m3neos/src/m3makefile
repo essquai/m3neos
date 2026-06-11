@@ -4,13 +4,17 @@ import ("m3link")
 import ("m3ir")
 import ("m3C")
 
+% generate version info
+include ("version.quake")
+version_make ("Version")
+c_source ("Version")
+
 Module ("Arg")
 Module ("Msg")
 Module ("Builder")
 Module ("Dirs")
 Module ("Utils")
 Module ("Makefile")
-Interface ("Version")
 
 Module ("M3Build")
 Module ("M3Options")

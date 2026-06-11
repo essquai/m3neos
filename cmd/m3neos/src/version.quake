@@ -1,0 +1,126 @@
+
+% Partly copied from CVSup by John D. Polstra
+%
+% Copyright 1999-2003 John D. Polstra.
+% All rights reserved.
+%
+% Redistribution and use in source and binary forms, with or without
+% modification, are permitted provided that the following conditions
+% are met:
+% 1. Redistributions of source code must retain the above copyright
+%    notice, this list of conditions and the following disclaimer.
+% 2. Redistributions in binary form must reproduce the above copyright
+%    notice, this list of conditions and the following disclaimer in the
+%    documentation and/or other materials provided with the distribution.
+% 3. All advertising materials mentioning features or use of this software
+%    must display the following acknowledgment:
+%      This product includes software developed by John D. Polstra.
+% 4. The name of the author may not be used to endorse or promote products
+%    derived from this software without specific prior written permission.
+%
+% THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
+% IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+% OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+% IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
+% INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+% NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+% DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+% THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+% (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+% THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+%
+% $Id: version.quake,v 1.29 2014-06-24 15:50:10 rodney Exp $
+
+
+%------------------------------------------------------------------------------
+
+proc FileExists(a) is
+    return not stale(a, a)
+end
+
+%------------------------------------------------------------------------------
+
+%
+% Generate the "Version.i3" implementation file. It contains the release
+% name, if any, else the compilation date and time, and other information
+% about the environment used to build the compiler.
+%
+proc version_make(name) is
+    local filename = name & ".i3"
+    local tempname = "_m3temp_" & filename
+    local ret = 0
+
+    > tempname in
+        write("INTERFACE ", name, ";", CR)
+    end
+    local NOW = "not available"
+    if defined("datetime")
+        NOW = datetime()
+    end
+    include(".." & SL & ".." & SL & ".." & SL & "etc" & SL & "m3neos.release")
+
+    >> tempname in
+        write("IMPORT Ctypes;", CR)
+        write("CONST", CR)
+        write("  Text = \"", MM3VERSION, "\";", CR)
+        write("  Number = \"", MM3VERSIONNUM, "\";", CR)
+        write("  LastChanged = \"", MM3LASTCHANGED, "\";", CR)
+
+        nul = "/dev/null"
+
+        % TODO: Out of tree builds.
+
+        % TODO: try_exec uses system and q_exec does not.
+
+        if equal (0, try_exec("@git rev-parse --verify HEAD >", nul)) 
+          local revision = compress(q_exec_get("git rev-parse --verify HEAD")[1])
+          local branch = compress(q_exec_get("git symbolic-ref -q --short HEAD")[1])
+          local remote_name = compress(q_exec_get("git config branch." & branch & ".remote")[1])
+          local remote_url = compress(q_exec_get("git config remote." & remote_name & ".url")[1])
+
+          % Replace git@github.com:x.git with https://github.com/x
+          % First requires ssh, second is open to public.
+
+          if equal(pn_lastext(remote_url), "git")
+            if tcontains(remote_url, "git@github.com:")
+              remote_url = subst(remote_url, "git@github.com:", "https://github.com/", 1)
+              remote_url = pn_join(pn_prefix(remote_url), pn_lastbase(remote_url))
+              remote_url = subst_chars(remote_url, "\\", "/")
+            end
+          end
+
+          write(
+          "  GitInfo = \"",
+            remote_url, "/", "commit", "/", revision, "\\n",
+            remote_url, "/", "commits", "/", branch, "\\n",
+            "remote: ", remote_url, "\\n",
+            "revision: ", revision, "\\n",
+            "branch: ", branch, "\\n", "\";", CR)
+
+          % Time "built" is still available, but it is not necessarily time built.
+          % It is when Version.c last compiled.
+          % We could touch it whenever git info changes, and have it use timestamp instead of time date.
+        else
+          % This comment serves to retain the old behavior where
+          % cm3 prints the time it built, if any of it changes.
+          % This does not end up in the C backend output.
+          write("  (* Created = \"", NOW, "\"; *)", CR)
+          write("  GitInfo = \"unknown\";", CR)
+        end
+
+        % When cm3 uses this data, it is describing the HOST.
+        % They are reasonable defaults for the TARGET, ASSUMING a NATIVE build.
+        %
+        write("  Target = \"", TARGET, "\";", CR)
+        write("  OSType = \"", OS_TYPE, "\";", CR)
+        write("  WordSize = \"", WORD_SIZE, "\";", CR)
+
+        % TODO Generating a constant TEXT in C would be nice maybe.
+        write("<*EXTERNAL \"Version__Created\"*> PROCEDURE Created():Ctypes.const_char_star;", CR)
+
+        write("END ", name, ".", CR)
+    end
+
+    cp_if(tempname, filename)
+    derived_interface(name, HIDDEN)
+end

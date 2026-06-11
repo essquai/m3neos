@@ -6,7 +6,7 @@
 % Last modified on Thu Apr  6 09:42:09 PDT 1995 by kalsow
 %      modified on Fri Feb  7 00:38:19 PST 1992 by muller
 
-import ("libm3")
+import ("neolib")
 
 module ("Addr")
 module ("Bool")

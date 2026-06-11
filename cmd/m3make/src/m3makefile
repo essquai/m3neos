@@ -9,9 +9,9 @@
 
 % m3_option ("-times")
 
-import("libm3")
+import("neolib")
 import("m3ir")
-import("sysutils")
+import("neoutils")
 
 Module   ("Quake")
 Module   ("QToken")

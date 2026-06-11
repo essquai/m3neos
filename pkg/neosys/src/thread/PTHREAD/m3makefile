@@ -1,0 +1,30 @@
+% Copyright (C) 1993, Digital Equipment Corporation
+% All rights reserved.
+% See the file COPYRIGHT for a full description.
+%
+% Last modified on Tue Jun 21 14:58:31 PDT 1994 by kalsow  
+%      modified on Thu Jun 17 19:16:57 PDT 1993 by harrison
+%      modified on Tue May  4 10:18:56 PDT 1993 by mjordan
+%      modified on Tue Feb 11 15:07:32 PST 1992 by muller
+
+interface ("ThreadPThread")
+interface ("ThreadPThreadRT")
+interface ("SchedulerPThread")
+%implementation ("ThreadPThread0") 
+   %^Older, with O(1) LIFO Condition scheduling and O(n) FIFO Mutex scheduling. 
+implementation ("ThreadPThread")
+   %^Newer, with O(1) FIFO scheduling for Conditions and Mutexes. 
+
+c_source ("ThreadPThreadC")
+c_source ("ThreadPThreadC_rt")
+
+% Compile everything when using C backend, for overall convergence.
+% The files are internally ifdefed so compiling them on the "wrong" platform
+% does "nothing" (build optimization).
+if defined("TARGET_OS") and not defined("M3_BOOTSTRAP") and not equal(M3_BACKEND_MODE, "C")
+  if equal(TARGET_OS, "DARWIN")
+    c_source ("ThreadApple")
+  end
+else
+  c_source ("ThreadApple")
+end

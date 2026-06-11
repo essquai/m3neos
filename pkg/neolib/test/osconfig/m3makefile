@@ -1,0 +1,5 @@
+import("m3core")
+import("neolib")
+build_standalone()
+implementation("Main")
+program("test")

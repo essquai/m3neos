@@ -1,11 +1,11 @@
 (* Copyright 1996-2000 Critical Mass, Inc. All rights reserved.    *)
 (* See file COPYRIGHT-CMASS for details. *)
 
-MODULE Makefile;
+UNSAFE MODULE Makefile;
 
 IMPORT FS, M3File, M3Timers, OSError, Params, Process, Text, Thread, Wr;
 IMPORT Arg, M3Options, M3Path, Msg, Utils, TextSeq, TextTextTbl;
-IMPORT MxConfig, Dirs, Version, TextUtils;
+IMPORT MxConfig, Dirs, Version, M3toC, TextUtils;
 
 TYPE
   NK = M3Path.Kind;
@@ -620,7 +620,7 @@ PROCEDURE PrintVersion (exit: BOOLEAN) =
   VAR gitInfo := Version.GitInfo;
   BEGIN
     IF traceQuake THEN MxConfig.EnableQuakeTrace() END;
-    Msg.Out ("Modula-3 NEOs version ", Val("CM3_RELEASE"), Wr.EOL);
+    Msg.Out ("Modula-3 neos ", Val("CM3_RELEASE"), Wr.EOL);
     gitInfo := TextUtils.Substitute(Version.GitInfo, "\n", "\n           ");
     gitInfo := TextUtils.SkipRight(gitInfo);
     Msg.Out ("  GitInfo: ", gitInfo, Wr.EOL);
@@ -752,6 +752,6 @@ BEGIN
   EVAL defs.put("CM3_VERSION", Version.Number);(* version as number *)
   EVAL defs.put("CM3_CHANGED", Version.LastChanged); (* date of last change *)
   EVAL defs.put("CM3_CREATED", Version.LastChanged); (* backw. compatibility *)
-  EVAL defs.put("CM3_COMPILED", Version.Created); (* date of compilation *)
+  EVAL defs.put("CM3_COMPILED", M3toC.StoT(Version.Created())); (* date of compilation *)
   EVAL defs.put("EOL", Wr.EOL);
 END Makefile.

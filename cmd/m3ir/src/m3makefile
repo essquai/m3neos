@@ -6,8 +6,8 @@
 %      modified on Mon May 24 15:12:25 PDT 1993 by muller
 
 
-import ("libm3")
-import ("sysutils")
+import ("neolib")
+import ("neoutils")
 
 Module ("Target")
 Module ("TargetMap")

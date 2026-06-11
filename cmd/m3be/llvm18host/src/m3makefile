@@ -1,4 +1,4 @@
-import("libm3")
+import("neolib")
 import("m3ir")
 import("m3make")
 import("llvm18api")

@@ -9,7 +9,7 @@
 % You should have installed the llvm libraries in the appropriate place
 % for this version of the bindings ie llvm version 18
 
-import ("m3core")
+import ("neosys")
 cpp_source("extras")
 Interface ("LLVM") 
 Interface ("LLVMTypes") 

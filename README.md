@@ -10,11 +10,11 @@ Pre-release capabilities:
 * llvm-c intermediate representation api
 * LLVM native backend (m3llhost)
 * consolidate config files
+* neo packages
 
 Roadmap items:
 
 * stretch goal: LLVM C aggregate return values
-* runtime import mm3:m3core
 * runtime untraced memory (malloc substitute)
 * runtime shadow stack
 * runtime wasm32 build
