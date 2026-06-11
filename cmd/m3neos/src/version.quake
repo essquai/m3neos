@@ -91,10 +91,8 @@ proc version_make(name) is
 
           write(
           "  GitInfo = \"",
-            remote_url, "/", "commit", "/", revision, "\\n",
-            remote_url, "/", "commits", "/", branch, "\\n",
             "remote: ", remote_url, "\\n",
-            "revision: ", revision, "\\n",
+            "commit: ", revision, "\\n",
             "branch: ", branch, "\\n", "\";", CR)
 
           % Time "built" is still available, but it is not necessarily time built.

@@ -621,9 +621,9 @@ PROCEDURE PrintVersion (exit: BOOLEAN) =
   BEGIN
     IF traceQuake THEN MxConfig.EnableQuakeTrace() END;
     Msg.Out ("Modula-3 neos ", Val("CM3_RELEASE"), Wr.EOL);
-    gitInfo := TextUtils.Substitute(Version.GitInfo, "\n", "\n           ");
+    gitInfo := TextUtils.Substitute(Version.GitInfo, "\n", "\n          ");
     gitInfo := TextUtils.SkipRight(gitInfo);
-    Msg.Out ("  GitInfo: ", gitInfo, Wr.EOL);
+    Msg.Out ("  GitInfo ", gitInfo, Wr.EOL);
     Msg.Out ("  last updated: ", Val("CM3_CHANGED"), Wr.EOL);
     Msg.Out ("  compiled: ", Val("CM3_COMPILED"), Wr.EOL);
     Msg.Out ("  configuration: ", MxConfig.FindFile(), Wr.EOL);
