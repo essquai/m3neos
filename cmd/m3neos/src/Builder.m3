@@ -1173,8 +1173,7 @@ PROCEDURE CompileM3X (s: State; u: M3Unit.T) =
     IF (u.link_info = NIL) THEN
       DebugF ("reading link info from ", u);
       units := GetUnitLinkInfo (u, imported := FALSE);
-      (* IF (units = NIL) THEN BadFile ("missing link info", u); END; *)
-      IF (u.link_info = NIL) THEN Msg.UsageError ("UE3: missing link info ", M3ID.ToText(u.name), Wr.EOL); END;
+      IF (units = NIL) THEN Msg.UsageError ("UE3: missing link info ", M3ID.ToText(u.name), Wr.EOL); END;
 
       u.link_info := units.unit;
       <*ASSERT units.next = NIL*>

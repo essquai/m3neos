@@ -13,7 +13,8 @@ IMPORT File, Text, (*ETimer, M3Timers,*) M3ID, M3Compiler;
 
 PROCEDURE Initialize (READONLY options: ARRAY OF TEXT): BOOLEAN =
   BEGIN
-    verbose              := TRUE;
+    neoglobal            := FALSE;
+    verbose              := FALSE;
     errorDie             := -1;
     warnings             := 2;
     coverage             := FALSE;
@@ -61,6 +62,9 @@ PROCEDURE ProcessArg (t: TEXT): BOOLEAN =
       verbose  := TRUE;
       vs_debug := TRUE;
       warnings := -1;
+    ELSIF (Text.Equal (t, "-globals")) THEN
+      (* generate globals for neo *)
+      neoglobal := TRUE;
     ELSIF (Text.Equal (key, "-t")) THEN
       (* ignore the old -tTARGET option which is still in the config files  *)
     ELSIF (Text.Equal (t, "-g")) THEN

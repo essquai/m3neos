@@ -1,6 +1,5 @@
 # Needed to compile bootstrap.
-add_library(neocore STATIC)
-target_include_directories(neocore INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(neocore PUBLIC m3)
+add_library(neosys STATIC)
+target_include_directories(neosys INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}")
 include(sources.lst)
-target_sources(neocore PRIVATE ${mm3_SOURCES})
+target_sources(neosys PRIVATE ${m3neos_SOURCES})

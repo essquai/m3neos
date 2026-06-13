@@ -9,8 +9,8 @@
 % AMD64_LINUX
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-readonly TARGET = "AMD64_LINUX" % code generation target
-readonly GNU_PLATFORM = "amd64-linux" % "cpu-os" string for GNU
+%readonly TARGET = "AMD64_LINUX" % code generation target
+%readonly GNU_PLATFORM = "amd64-linux" % "cpu-os" string for GNU
 
 SYSTEM_CC = "cc -g -m64 -fPIC" % C compiler
 SYSTEM_CXXC = "c++ -g -m64 -fPIC" % C++ compiler

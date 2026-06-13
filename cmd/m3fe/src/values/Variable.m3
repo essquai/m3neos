@@ -16,8 +16,7 @@ IMPORT Target, TInt, Token, Ident, Module, CallExpr;
 IMPORT Decl, Null, Int, LInt, Fmt, Procedure, Tracer;
 IMPORT Expr, IntegerExpr, ArrayExpr, TextExpr, NamedExpr;
 IMPORT Type, OpenArrayType, ErrType, TipeMap;
-IMPORT RTIO, RTParams;
-IMPORT Scanner;
+IMPORT RTIO, RTParams, Host, Scanner;
 FROM Scanner IMPORT GetToken, Match, cur;
 
 VAR debug := FALSE;
@@ -521,19 +520,22 @@ PROCEDURE GetBounds (t: T;  VAR min, max: Target.Int) =
 PROCEDURE MakeOnce(t: T; inMain: BOOLEAN) =
   VAR n : M3ID.T; m3t : INTEGER; file : TEXT; line : INTEGER;
   BEGIN
-    RTIO.PutText("Variable.MakeOnce var=");
-    RTIO.PutInt(ORD(t.once_var # NIL));
-    RTIO.PutText(" ");
-    RTIO.PutText(t.qualName);
-    RTIO.PutText(" inMain=");
-    RTIO.PutInt(ORD(inMain));
-    RTIO.PutText(" ");
-    Scanner.LocalHere(file, line);
-    RTIO.PutText(file);
-    RTIO.PutText(" ");
-    RTIO.PutInt(line);
-    RTIO.PutText("\n");
-    RTIO.Flush();
+    IF NOT Host.neoglobal THEN RETURN END;
+    IF debug THEN
+      RTIO.PutText("Variable.MakeOnce var=");
+      RTIO.PutInt(ORD(t.once_var # NIL));
+      RTIO.PutText(" ");
+      RTIO.PutText(t.qualName);
+      RTIO.PutText(" inMain=");
+      RTIO.PutInt(ORD(inMain));
+      RTIO.PutText(" ");
+      Scanner.LocalHere(file, line);
+      RTIO.PutText(file);
+      RTIO.PutText(" ");
+      RTIO.PutInt(line);
+      RTIO.PutText("\n");
+      RTIO.Flush();
+    END;
 
     IF t.once_var # NIL OR NOT t.global THEN RETURN; END;
     n    := M3ID.Add(t.qualName);
@@ -549,12 +551,14 @@ PROCEDURE MakeOnce(t: T; inMain: BOOLEAN) =
 
 PROCEDURE MakeNone(t: T) =
   BEGIN
-    RTIO.PutText("Variable.MakeNone var=");
-    RTIO.PutInt(ORD(t.once_var # NIL));
-    RTIO.PutText(" ");
-    RTIO.PutText(t.qualName);
-    RTIO.PutText("\n");
-    RTIO.Flush();
+    IF debug THEN
+      RTIO.PutText("Variable.MakeNone var=");
+      RTIO.PutInt(ORD(t.once_var # NIL));
+      RTIO.PutText(" ");
+      RTIO.PutText(t.qualName);
+      RTIO.PutText("\n");
+      RTIO.Flush();
+    END;
 
     t.once_var := NIL;
   END MakeNone;

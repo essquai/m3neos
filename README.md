@@ -5,12 +5,16 @@ It is derived from [Critical Mass Modula-3](https://github.com/modula3/cm3).
 ## Status
 
 Pre-release capabilities:
-
 * C native backend originally from SRC
 * llvm-c intermediate representation api
 * LLVM native backend (m3llhost)
 * consolidate config files
 * neo packages
+* bootstrap generation
+
+Requires investigation
+* LLVM native backend only works when compiled with gcc on Ubuntu;
+* compilation with clang coredumps
 
 Roadmap items:
 
@@ -19,6 +23,5 @@ Roadmap items:
 * runtime shadow stack
 * runtime wasm32 build
 * LLVM wasm32 backend (m3llwasm)
-* bootstrap generation
 * stretch goal: C wasm32 backend
 * stretch goal: binaryen backend

@@ -13,8 +13,10 @@ IMPORT Variable, Type, Procedure, Ident, M3Buf, BlockStmt, Int;
 IMPORT Host, Token, Revelation, Coverage, Decl, Scanner;
 IMPORT ProcBody, Target, M3RT, Marker, File, Tracer, Wr;
 IMPORT Jmpbufs;
-IMPORT RTIO;
+IMPORT RTIO, RTParams;
 FROM Scanner IMPORT GetToken, Fail, Match, MatchID, cur;
+
+VAR debug := FALSE;
 
 TYPE
   DataSeg = RECORD
@@ -778,9 +780,11 @@ PROCEDURE MakeVars (t: T) =
     gvar : Variable.T;
     gname : M3ID.T;
   BEGIN
-    RTIO.PutText("Module.MakeVars ")  ;
-    RTIO.PutText(DataName(t));
-    RTIO.PutText("\n");
+    IF debug THEN
+      RTIO.PutText("Module.MakeVars ")  ;
+      RTIO.PutText(DataName(t));
+      RTIO.PutText("\n");
+    END;
     IF (t.has_errors) THEN (*don't bother *) RETURN END;
     IR.Comment (-1, FALSE, "MakeVars for ", DataName(t));
     WHILE (v # NIL) DO
@@ -805,9 +809,11 @@ PROCEDURE DisposeVars (t: T) =
     gvar : Variable.T;
     gname : M3ID.T;
   BEGIN
-    RTIO.PutText("Module.DisposeVars ")  ;
-    RTIO.PutText(DataName(t));
-    RTIO.PutText("\n");
+    IF debug THEN
+      RTIO.PutText("Module.DisposeVars ")  ;
+      RTIO.PutText(DataName(t));
+      RTIO.PutText("\n");
+    END;
     IF (t.has_errors) THEN (*don't bother *) RETURN END;
     WHILE (v # NIL) DO
       gname := Value.CName(v);
@@ -982,7 +988,7 @@ PROCEDURE Compile (t: T) =
       DeclareGlobalData (t);
       IF (t.body # NIL) THEN EmitDecl (t.body); END;
       Type.CompileAll ();
-      MakeVars(t);
+      IF Host.neoglobal THEN MakeVars(t); END;
       IF (t.interface)
         THEN CompileInterface (t);
         ELSE CompileModule (t);
@@ -998,9 +1004,11 @@ PROCEDURE Compile (t: T) =
     Scope.Pop (zz);
     Revelation.Pop (yy);
     (* Clean module variables for this module and co-requisites *)
-    DisposeVars(t);
-    EVAL Switch(t);
-    VisitImports(DisposeVars);
+    IF Host.neoglobal THEN
+      DisposeVars(t);
+      EVAL Switch(t);
+      VisitImports(DisposeVars);
+    END;
     EVAL Switch (save);
     (* ETimer.Pop (); *)
   END Compile;
@@ -1091,17 +1099,19 @@ PROCEDURE LoadGlobalAddr (t: T;  offset: INTEGER;  is_const: BOOLEAN) =
 (* PRE: t = Current () OR NOT is_const. *)
   VAR file : TEXT; line : INTEGER;
   BEGIN
-  RTIO.PutText("Module.LoadGlobalAddr ");
-  Scanner.LocalHere(file, line);
-  RTIO.PutText(file);
-  RTIO.PutText(" ");
-  RTIO.PutInt(line);
-  RTIO.PutText(" ");
-  RTIO.PutInt(offset);
-  RTIO.PutText(" ");
-  RTIO.PutText(DataName(t));
-  RTIO.PutText("\n");
-  RTIO.Flush();
+    IF debug THEN
+      RTIO.PutText("Module.LoadGlobalAddr ");
+      Scanner.LocalHere(file, line);
+      RTIO.PutText(file);
+      RTIO.PutText(" ");
+      RTIO.PutInt(line);
+      RTIO.PutText(" ");
+      RTIO.PutInt(offset);
+      RTIO.PutText(" ");
+      RTIO.PutText(DataName(t));
+      RTIO.PutText("\n");
+      RTIO.Flush();
+    END;
 
     <*ASSERT t.compile_age >= compile_age*>
     IF (t = curModule) THEN
@@ -1379,4 +1389,5 @@ PROCEDURE InnerVisit (t: T) =
   END InnerVisit;
 
 BEGIN
+  debug := RTParams.IsPresent ("m3front-debug-module");
 END Module.

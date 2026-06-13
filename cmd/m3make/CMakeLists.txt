@@ -1,5 +1,5 @@
 # Needed to compile bootstrap.
 add_library(m3make STATIC)
-target_link_libraries(m3make PUBLIC m3)
+target_link_libraries(m3make PUBLIC neo m3ir neoutils)
 include(sources.lst)
-target_sources(m3make PRIVATE ${mm3_SOURCES})
+target_sources(m3make PRIVATE ${m3neos_SOURCES})

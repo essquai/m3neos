@@ -2,4 +2,4 @@
 add_library(neo STATIC)
 target_link_libraries(neo PUBLIC neosys)
 include(sources.lst)
-target_sources(neo PRIVATE ${mm3_SOURCES})
+target_sources(neo PRIVATE ${m3neos_SOURCES})

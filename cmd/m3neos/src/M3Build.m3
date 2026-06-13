@@ -99,7 +99,6 @@ CONST
   M3Exports   = ".M3EXPORTS";   (* file of exported quake commands *)
   M3Ship      = ".M3SHIP";      (* ship commands *)
   M3Overrides = ".M3OVERRIDES"; (* marker to indicate override use *)
-  M3Web       = ".M3WEB";       (* compiler support for browser *)
   M3TFile     = ".M3IMPTAB";    (* import table for external compilers *)
   ModeGroupR  = "0644";
   ModeGroupW  = "0664";
@@ -931,10 +930,8 @@ PROCEDURE DoCompileOnly (m: QMachine.T;  <*UNUSED*> n_args: INTEGER)
     GenM3Exports (t, "%% compile only");
     IF (t.mode = MM.Build) THEN
       Builder.JustCompile (t.units, SysLibs (t), t);
-      InstallDerived (t, M3Web);
       InstallSources (t);
     END;
-    DeleteDeriveds (t, M3Web, NoExtension);
     InitGlobals (t);  (* forget about the accumulated sources... *)
   END DoCompileOnly;
 
@@ -946,10 +943,8 @@ PROCEDURE DoFinishUp (m: QMachine.T;  <*UNUSED*> n_args: INTEGER)
       GenM3Exports (t, "%% finish up");
       IF (t.mode = MM.Build) THEN
         Builder.JustCompile (t.units, SysLibs (t), t);
-        InstallDerived (t, M3Web);
         InstallSources (t);
       END;
-      DeleteDeriveds (t, M3Web, NoExtension);
       InitGlobals (t);  (* forget about the accumulated sources... *)
     END;
   END DoFinishUp;
@@ -1517,7 +1512,6 @@ PROCEDURE DoLibrary (m: QMachine.T;  <*UNUSED*> n_args: INTEGER)
       Builder.BuildLib (name, t.units, SysLibs (t), t.build_shared, t);
       InstallDerived (t, lib_a);
       InstallDerived (t, lib_m3x);
-      InstallDerived (t, M3Web);
       InstallSources (t);
     END;
     IF (t.mode = MM.Find) THEN FindUnits (t); END;
@@ -1526,7 +1520,7 @@ PROCEDURE DoLibrary (m: QMachine.T;  <*UNUSED*> n_args: INTEGER)
       Builder.EmitPkgImports (t.units); 
       done := TRUE;
     END;
-    DeleteDeriveds (t, "", ARRAY OF TEXT {lib_a, lib_m3x, M3Web, M3TFile, "_m3responsefile0.txt", "_m3responsefile1.txt"});
+    DeleteDeriveds (t, "", ARRAY OF TEXT {lib_a, lib_m3x, M3TFile, "_m3responsefile0.txt", "_m3responsefile1.txt"});
     DeleteDeriveds (t, name, ARRAY OF TEXT {".lst", ".def", ".dll", ".exp", ".lib.sa", ".pdb"});
     InitGlobals (t);  (* forget about the accumulated sources... *)
   END DoLibrary;
@@ -1559,7 +1553,7 @@ PROCEDURE DoProgramX (m: QMachine.T;  <*UNUSED*> n_args: INTEGER) RAISES {Quake.
 
 PROCEDURE BuildProgram (t: T;  nm: M3ID.T)
   RAISES {Quake.Error} =
-  CONST Extras = ARRAY OF TEXT { "_m3main.c","_m3main.o","_m3main.obj", "_m3responsefile0.txt", M3Web, M3TFile };
+  CONST Extras = ARRAY OF TEXT { "_m3main.c","_m3main.o","_m3main.obj", "_m3responsefile0.txt", M3TFile };
   CONST Junk = ARRAY OF TEXT { ".map", ".lst", ".pdb" };
   VAR name := M3ID.ToText (nm);
   BEGIN
@@ -1572,7 +1566,6 @@ PROCEDURE BuildProgram (t: T;  nm: M3ID.T)
     GenM3Exports (t, "_define_pgm(\"" & name & QRPCR);
     IF (t.mode = MM.Build) THEN
       Builder.BuildPgm (name, t.units, SysLibs (t), t.build_shared, t);
-      InstallDerived (t, M3Web);
       InstallSources (t);
     END;
     IF (t.mode = MM.Find) THEN FindUnits (t); END;

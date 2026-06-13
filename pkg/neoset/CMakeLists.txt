@@ -1,4 +1,4 @@
 # Needed to compile bootstrap.
 add_library(neoset STATIC)
 include(sources.lst)
-target_sources(neoset PRIVATE ${mm3_SOURCES})
+target_sources(neoset PRIVATE ${m3neos_SOURCES})

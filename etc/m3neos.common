@@ -37,7 +37,7 @@ end
 %------------------------------------------------------------------------------
 
 if not defined ("M3_BACKEND_MODE")
-    M3_BACKEND_MODE = "3"
+    M3_BACKEND_MODE = M3_BACKEND
     % -- defines how the frontend, backend, and assembler interact
     %  "0"  -- don't call m3_backend, M3CG produces object code
     %  "1"  -- don't call m3_backend, M3CG produces assembly code
