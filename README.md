@@ -11,6 +11,7 @@ Pre-release capabilities:
 * consolidate config files
 * neo packages
 * bootstrap generation
+* RTAddress runtime (malloc substitute)
 
 Requires investigation
 * LLVM native backend only works when compiled with gcc on Ubuntu;
@@ -19,7 +20,6 @@ Requires investigation
 Roadmap items:
 
 * stretch goal: LLVM C aggregate return values
-* runtime untraced memory (malloc substitute)
 * runtime shadow stack
 * runtime wasm32 build
 * LLVM wasm32 backend (m3llwasm)
