@@ -38,7 +38,7 @@ PROCEDURE Init();
 
 
 <*EXTERNAL "nref_define"*>
-PROCEDURE Define(numBytes: LONGINT; type: RefType);
+PROCEDURE Define(numBytes: LONGINT; type: RefType) : BOOLEAN;
 (* Define the fixed heap for the given RefType. When numBytes is zero,
    the heap isn't fixed. Fixing the size limits malloc's memory for the
    given RefType. The runtime invokes Define for Untraced and Traced

@@ -27,6 +27,7 @@
  * by reference type nref_t.
  */
 #include <stddef.h>
+#include <stdbool.h>
 #include <malloc.h>
 
 typedef enum {
@@ -37,7 +38,7 @@ typedef enum {
 
 /* Module initialisation */
 void nref_from_orbit();
-int  nref_define(size_t numBytes, nref_t ref);
+bool nref_define(size_t numBytes, nref_t ref);
 
 /* Allocation */
 void *nref_malloc(size_t size, nref_t ref);

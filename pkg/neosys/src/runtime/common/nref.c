@@ -804,7 +804,8 @@ void nref_from_orbit() {
 // For segments that can be pre-defined, their buffer is bootstrapped
 // from the Virtual segment, or they too fall back to sbrk.
 //
-int nref_define(size_t numBytes, nref_t ref) {
+bool nref_define(size_t numBytes, nref_t ref) {
+    bool ok = true;
     void *addr = NULL;
     assert(rctx[ref].segment.defined == false);
 
@@ -819,14 +820,19 @@ int nref_define(size_t numBytes, nref_t ref) {
         if (numBytes) {
             // pull a segment out of virtual memory
             addr = nref_malloc(numBytes, Virtual);
-            assert(addr);
+            if (!addr) ok = false;
         }
-        nref_sbrk_init(addr, numBytes, &rctx[ref].segment);
+        if (ok) {
+            nref_sbrk_init(addr, numBytes, &rctx[ref].segment);
+        }
     }
 
     // Start with a tiny dynamic region.
-    claim_more_memory(3*sizeof(Region), &rctx[ref]);
+    if (ok) {
+        ok = claim_more_memory(3*sizeof(Region), &rctx[ref]);
+    }
     MALLOC_RELEASE(ref);
+    return(ok);
 }
 
 
