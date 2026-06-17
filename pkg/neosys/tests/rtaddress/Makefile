@@ -1,9 +1,13 @@
-SRC     = ../../src/runtime/common
-SOURCES = test.c $(SRC)/emm.c $(SRC)/emmalloc.c
-CFLAGS  = -g -pthread -I $(SRC) -DEMMALLOC_VERBOSE -DEMMALOC_MEMVALIDATE 
+SRC      = ../../src/runtime/common
+TSOURCES = test.c $(SRC)/emm.c $(SRC)/emmalloc.c
+NSOURCES = ntest.c $(SRC)/nref.c
+CFLAGS   = -g -pthread -I $(SRC) -DEMMALLOC_VERBOSE -DEMMALOC_MEMVALIDATE 
 
-all:  test
+all:  test ntest
 
-test: $(SOURCES)
+test: $(TSOURCES)
 	$(CC) -o test $(CFLAGS) $(SOURCES)
+
+ntest: $(NSOURCES)
+	$(CC) -o ntest $(CFLAGS) $(NSOURCES)
 
