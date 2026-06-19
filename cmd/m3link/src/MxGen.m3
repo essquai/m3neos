@@ -441,7 +441,7 @@ PROCEDURE GenerateCGEntry (VAR s: State) =
     END GenAddUnitImports;
 
   BEGIN
-    nref_proc := s.cg.import_procedure (M3ID.Add ("neoref_prologue"), 2,
+    nref_proc := s.cg.import_procedure (M3ID.Add ("nref_prologue"), 2,
                                        Target.IRType.Void, Target.DefaultCall);
     EVAL DeclareParam (s, "argc", int_t);
     EVAL DeclareParam (s, "argv", addr_t);
