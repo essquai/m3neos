@@ -78,7 +78,6 @@ PROCEDURE Open (library (* or program *): TEXT;
 
     (* Binaryen backend *)
     IF backend_mode IN Target.BackendBinaryenSet THEN
-      Msg.Info("M3Backend.Open Binaryen f_ir_name", f_ir_name, Wr.EOL);
       IF (Msg.level >= Msg.Level.Verbose) THEN
         log_name := target_name & "log";
         log_wr := Utils.OpenWriter (log_name, fatal := TRUE);
@@ -88,7 +87,6 @@ PROCEDURE Open (library (* or program *): TEXT;
 
     (* Llvm backend *)
     IF backend_mode IN Target.BackendLlvmSet THEN
-      Msg.Info("M3Backend.Open Host f_ir_name", f_ir_name, Wr.EOL);
       IF (Msg.level >= Msg.Level.Verbose) THEN
         log_name := target_name & "log";
         log_wr := Utils.OpenWriter (log_name, fatal := TRUE);
@@ -97,7 +95,6 @@ PROCEDURE Open (library (* or program *): TEXT;
     END;
 
     (* There is no default *)
-    Msg.Info("M3Backend.Open NIL f_ir_name", f_ir_name, Wr.EOL);
     RETURN NIL;
   END Open;
 

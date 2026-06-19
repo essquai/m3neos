@@ -14,6 +14,10 @@ IMPORT Cstdlib, Cstring;
 IMPORT RT0, RTParams, RTDebug, RTHeapRep, RTCollectorSRC;
 IMPORT RTTypeSRC, RTSignal, RTThread, RTHeapInfo, RTLinkerX, 
        RTIO, Word;
+IMPORT RTReference;
+
+TYPE
+  HT = RTReference.RefType;
 
 VAR
   traceInit   := FALSE;
@@ -43,6 +47,7 @@ PROCEDURE InitRuntime (p_argc: INTEGER;  p_argv, p_envp, p_instance: ADDRESS) =
     (* initialize the rest of the modules we'll be calling *)
     AddUnit (RTLinkerX.RTLinker_I3);  (* myself! *)
     AddUnit (RTLinkerX.RT0_I3);
+    AddUnit (RTLinkerX.RTReference_I3);
     AddUnit (RTLinkerX.RTSignal_I3);
     AddUnit (RTLinkerX.RTParams_I3);
     AddUnit (RTLinkerX.RTDebug_I3);
@@ -55,6 +60,7 @@ PROCEDURE InitRuntime (p_argc: INTEGER;  p_argv, p_envp, p_instance: ADDRESS) =
     AddUnit (RTLinkerX.Word_I3);
 
     (* finally, initialize the runtime. *)
+    RTReference.sizes(ADR(RTReference.Params[HT.Virtual])); (* memory! *)
     RTSignal.InstallHandlers ();
     RTParams.Init ();
     RTThread.Init ();

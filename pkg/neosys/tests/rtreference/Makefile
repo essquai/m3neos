@@ -6,7 +6,7 @@ CFLAGS   = -g -pthread -I $(SRC) -DEMMALLOC_VERBOSE -DEMMALOC_MEMVALIDATE
 all:  test ntest
 
 test: $(TSOURCES)
-	$(CC) -o test $(CFLAGS) $(SOURCES)
+	$(CC) -o test $(CFLAGS) $(NSOURCES)
 
 ntest: $(NSOURCES)
 	$(CC) -o ntest $(CFLAGS) $(NSOURCES)

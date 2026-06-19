@@ -11,7 +11,7 @@ Pre-release capabilities:
 * consolidate config files
 * neo packages
 * bootstrap generation
-* RTReference runtime (malloc with Traced & Untraced heaps)
+* RTReference - nref_prologue
 
 Requires investigation
 * LLVM native backend only works when compiled with gcc on Ubuntu;

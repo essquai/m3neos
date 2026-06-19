@@ -36,7 +36,8 @@ typedef enum {
   Traced
 } nref_t;
 
-/* Module initialisation */
+/* Module initialisation: either use prologue OR the other two */
+void nref_prologue(int argc, char **argv);
 void nref_from_orbit();
 bool nref_define(size_t numBytes, nref_t ref);
 
@@ -46,6 +47,7 @@ void *nref_calloc(size_t num, size_t size, nref_t ref);
 void nref_free(void *ptr, nref_t ref);
 
 /* Meta Information */
+void nref_sizes(long *bytes);
 struct mallinfo nref_mallinfo(nref_t ref);
 int  nref_validate_memory_regions(nref_t ref);
 void nref_dump_memory_regions(nref_t ref);

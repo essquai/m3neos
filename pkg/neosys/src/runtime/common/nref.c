@@ -352,6 +352,9 @@ typedef struct {
 // who they are without referring to the static array.
     nref_t refType;
 
+// Defined allocation for this REF type
+    long numBytes;
+
 // Linear memory segment from which references of this type are allocate
 // Treated by the nref_sbrk series of functions - see above for details.
     segment_t segment;
@@ -761,6 +764,74 @@ static bool claim_more_memory(size_t numBytes, rctx_t *ctx) {
   return true;
 }
 
+bool arg_match(char *arg, char *name, long *value) {
+  long v = 0;
+  bool match = true, gathering = false;
+  char a, n;
+
+  for (int i = 0; match && arg[i]; i++) {
+
+    // are we still matching the name?
+    if (!gathering) {
+      if (name[i]) {
+        // convert name & arg case
+        if (arg[i] >= 'a' && arg[i] <= 'z') a = arg[i] ^ 0x20 ; else a = arg[i];
+        if (name[i] >= 'a' && name[i] <= 'z') n = name[i] ^ 0x20 ; else n = name[i];
+        if (n != a) match = false;
+      } else {
+        gathering = true;
+      }
+    }
+
+    // are we gathering? if name only *just* ended, this is the first digit
+    if (gathering) {
+      if (arg[i] >= '0' && arg[i] <= '9') {
+        // add next least significant digit
+        v = v * 10 + (arg[i]-'0');
+      } else {
+        // the value is not a valid decimal string
+        match = false;
+      }
+    }
+  }
+
+  if (match && v > 0) {
+    *value = v;
+  } else {
+    match = false;
+  }
+  return(match);
+}
+
+void nref_prologue(int argc, char **argv) {
+  char *argName[] = {"@M3virtual=", "@M3untraced=", "@M3traced="};
+  long params[3];
+  //
+  // determine the pool sizes from the command line
+  //
+  params[Virtual]  = 0;
+  params[Untraced] = 2 * 1024 * 1024;
+  params[Traced]   = 4 * 1024 * 1024;
+
+  for (int i = 1; i < argc; i++) {
+    for (int a = 0; a < 3; a++) {
+      if (arg_match(argv[i], argName[a], &params[a])) {
+        printf("nref_prologue match %s --> %ld\n", argName[a], params[a]);
+      }
+    }
+  }
+
+  // initialize them
+  nref_from_orbit();
+  nref_define(params[Untraced], Untraced);
+  nref_define(params[Traced], Traced);
+  printf("nref_prologue:\n");
+
+  for (int i = 0; i < 3; i++) {
+    printf("    %s%ld\n", argName[i], params[i]);
+  }
+}
+
 
 void nref_from_orbit() {
   nref_t ref;
@@ -770,6 +841,7 @@ void nref_from_orbit() {
     MALLOC_ACQUIRE(ref);
 
     rctx[ref].refType = ref;
+    rctx[ref].numBytes = -1;
     
     rctx[ref].segment.defined = false;
     rctx[ref].segment.heapSize = 0;
@@ -812,6 +884,7 @@ bool nref_define(size_t numBytes, nref_t ref) {
     nref_diag_stow("nref_define refType=%d numBytes=%ld", ref, numBytes);
 
     MALLOC_ACQUIRE(ref);
+    rctx[ref].numBytes = numBytes;
     if (ref == Virtual) {
         assert(numBytes == 0);
         nref_sbrk_init(addr, numBytes, &rctx[ref].segment);
@@ -1178,6 +1251,15 @@ static size_t count_linked_list_space(Region *list) {
   }
   return space;
 }
+
+// return each context's numBytes parameter
+void nref_sizes(long *bytes) {
+  int i;
+  for (int i = 0; i < 3; i++) {
+    bytes[i] = rctx[i].numBytes;
+  }
+}
+
 
 struct mallinfo nref_mallinfo(nref_t ref) {
   int64_t max, cur;

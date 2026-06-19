@@ -8,6 +8,7 @@ UNSAFE INTERFACE RTLinkerX;
 IMPORT RT0;
 
 <*EXTERNAL*> PROCEDURE RT0_I3             (mode: INTEGER): RT0.ModulePtr;
+<*EXTERNAL*> PROCEDURE RTReference_I3     (mode: INTEGER): RT0.ModulePtr;
 <*EXTERNAL*> PROCEDURE RTAllocCnts_I3     (mode: INTEGER): RT0.ModulePtr;
 <*EXTERNAL*> PROCEDURE RTAllocStats_I3    (mode: INTEGER): RT0.ModulePtr;
 <*EXTERNAL*> PROCEDURE RTAllocator_I3     (mode: INTEGER): RT0.ModulePtr;

@@ -87,6 +87,8 @@ CONST Prefix = ARRAY OF TEXT {
 "typedef ADDRESS RT0__ModulePtr;",
 "#endif",
 "",
+"//neos reference type memory pool initialisation",
+"void __cdecl nref_prologue(int argc, char **argv);",
 "//correct, but match preexisting m3core",
 "//void __cdecl RTLinker__InitRuntime(INTEGER argc, char** argv, char** envp, void* hinstance);",
 "void __cdecl RTLinker__InitRuntime(INTEGER argc, ADDRESS argv, ADDRESS envp, ADDRESS hinstance);",
@@ -378,6 +380,7 @@ PROCEDURE GenerateCEntry (VAR s: State) =
     ELSE
       Out (s, "int main (int argc, char** argv, char** envp)", EOL);
       Out (s, "{", EOL);
+      Out (s, "  nref_prologue (argc, argv);\n");
       Out (s, "  RTLinker__InitRuntime (argc, (ADDRESS)argv, (ADDRESS)envp, 0);\n");
     END;
 
@@ -395,6 +398,7 @@ PROCEDURE GenerateCEntry (VAR s: State) =
 PROCEDURE GenerateCGEntry (VAR s: State) =
   VAR
     main      : M3IR.Proc;
+    nref_proc : M3IR.Proc;
     run_proc  : M3IR.Proc;
     link_proc : M3IR.Proc;
     link_proc2: M3IR.Proc;
@@ -437,6 +441,11 @@ PROCEDURE GenerateCGEntry (VAR s: State) =
     END GenAddUnitImports;
 
   BEGIN
+    nref_proc := s.cg.import_procedure (M3ID.Add ("neoref_prologue"), 2,
+                                       Target.IRType.Void, Target.DefaultCall);
+    EVAL DeclareParam (s, "argc", int_t);
+    EVAL DeclareParam (s, "argv", addr_t);
+
     run_proc := s.cg.import_procedure (M3ID.Add ("RTLinker__InitRuntime"), 4,
                                        Target.IRType.Void, Target.DefaultCall);
     EVAL DeclareParam (s, "argc", int_t);
@@ -511,6 +520,15 @@ PROCEDURE GenerateCGEntry (VAR s: State) =
       s.cg.set_source_line (src_line);  INC (src_line);
       s.cg.load_integer (int_t, TInt.Zero);
       s.cg.store (self, 0, int_t, int_t);
+
+      (* neoref_prologue (argc, argv); *)
+      s.cg.set_source_line (src_line);  INC (src_line);
+      s.cg.start_call_direct (nref_proc, 0, Target.IRType.Void);
+      s.cg.load (argc, 0, int_t, int_t);        (* argc *)
+      s.cg.pop_param (int_t);
+      s.cg.load (argv, 0, addr_t, addr_t);      (* argv *)
+      s.cg.pop_param (addr_t);
+      s.cg.call_direct (nref_proc, Target.IRType.Void);
     END; (* if GUI *)
 
     (* RTLinker__InitRuntime (argc, argv, envp, self); *)

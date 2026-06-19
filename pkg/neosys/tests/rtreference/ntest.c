@@ -97,26 +97,24 @@ int main(int argc, char *argv[]) {
     int     N;
     int     n;
     nref_t  ref = Untraced;
+    long    params[3];
     
 
     for (i = 1; i < argc; i++) {
         if (strncmp(argv[i], "-d", 2) == 0) diagnostic = true;
     }
 
-    name = "orbit"; passed = true;
-    nref_from_orbit();
-    if (nref_validate_memory_regions(Virtual) == 0) passed = true;
+    name = "prologue"; passed = true;
+    nref_prologue(argc, argv);
+    nref_sizes(params);
+    if (nref_validate_memory_regions(Virtual) != 0) passed = false;
+    if (nref_validate_memory_regions(Untraced) != 0) passed = false;
+    if (nref_validate_memory_regions(Traced) != 0) passed = false;
     if (diagnostic) nref_dump_memory_regions(Virtual);
     record(name, passed);
     if (diagnostic) nref_diag_dump();
 
-    name = "small heap (traced)"; passed = false;
-    nref_define(KB, Traced);
-    if (!nref_malloc(KB+sizeof(max_align_t), Traced)) passed = true;
-    record(name, passed);
-
     name = "alloc 16K"; passed = true;
-    nref_define(sizeof(heap), ref);
     for (i = 0; i < 16 && passed; i++) {
         addr[i] = nref_malloc(KB, ref);
         if (!addr[i]) passed = false;
