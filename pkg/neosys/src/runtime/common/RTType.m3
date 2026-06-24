@@ -4,11 +4,14 @@
 UNSAFE MODULE RTType EXPORTS RTType, RTTypeSRC, RTHooks;
 
 IMPORT RT0, RTMisc, RTException, RTHeapRep, RTModule, M3toC;
-IMPORT Ctypes, Cstdlib, Cstring, Word, RuntimeError;
+IMPORT Ctypes, RTReference, Cstring, Word, RuntimeError;
 
 TYPE
   TK  = RT0.TypeKind;
   RTE = RuntimeError.T;
+  (* In this module, allocate from virtual heap type - memory is
+     allocated for runtime setup, they aren't REFs *)
+  HT = RTReference.RefType;
 
 TYPE
   InfoPtr = UNTRACED REF Info;
@@ -282,7 +285,9 @@ PROCEDURE FinishTypecell (def: RT0.TypeDefn;  m: RT0.ModulePtr) =
 
       (* allocate my default method list *)
       IF (odef.methodSize > 0) AND (odef.defaultMethods = NIL) THEN
-        odef.defaultMethods := Cstdlib.calloc (1, odef.methodSize);
+        (* superceded *)
+        (* odef.defaultMethods := Cstdlib.calloc (1, odef.methodSize); *)
+        odef.defaultMethods := RTReference.calloc (1, odef.methodSize, HT.Virtual);
         IF odef.defaultMethods = NIL THEN
           Fail (RTE.OutOfMemory, m, odef, NIL);
         END;
@@ -664,7 +669,9 @@ PROCEDURE NewInfo (def: RT0.TypeDefn; m: RT0.ModulePtr; uid: INTEGER): InfoPtr =
   VAR p: InfoPtr;
   BEGIN
     IF (n_info >= InfoChunk) THEN
-      info_pool := Cstdlib.calloc (InfoChunk, BYTESIZE (Info));
+      (* superceded *)
+      (* info_pool := Cstdlib.calloc (InfoChunk, BYTESIZE (Info)); *)
+      info_pool := RTReference.calloc (InfoChunk, BYTESIZE (Info), HT.Virtual);
       IF info_pool = NIL THEN
         Fail (RTE.OutOfMemory, m, def, NIL);
       END;
@@ -723,7 +730,9 @@ PROCEDURE Expand (VAR m: InfoMap) =
       m.cnt  := 0;
       m.max  := m.initial_size;  (* must be a power of two *)
       m.mask := m.max - 1;
-      m.map  := Cstdlib.calloc (m.max, BYTESIZE (InfoPtr));
+      (* superceded *)
+      (* m.map  := Cstdlib.calloc (m.max, BYTESIZE (InfoPtr)); *)
+      m.map  := RTReference.calloc (m.max, BYTESIZE (InfoPtr), HT.Virtual);
       IF m.map = NIL THEN
         Fail (RTE.OutOfMemory, NIL, NIL, NIL);
       END;
@@ -733,7 +742,9 @@ PROCEDURE Expand (VAR m: InfoMap) =
       new.full := m.full + m.full;
       new.max  := m.max + m.max;
       new.mask := new.max - 1;
-      new.map  := Cstdlib.calloc (new.max, BYTESIZE (InfoPtr));
+      (* superceded *)
+      (* new.map  := Cstdlib.calloc (new.max, BYTESIZE (InfoPtr)); *)
+      new.map  := RTReference.calloc (new.max, BYTESIZE (InfoPtr), HT.Virtual);
       IF new.map = NIL THEN
         Fail (RTE.OutOfMemory, NIL, NIL, NIL);
       END;
@@ -757,7 +768,9 @@ PROCEDURE Expand (VAR m: InfoMap) =
       END;
 
       (* free the old map and reset it to the new one *)
-      Cstdlib.free (m.map);
+      (* superceded *)
+      (* Cstdlib.free (m.map); *)
+      RTReference.free (m.map, HT.Virtual);
       m := new;      
     END;
   END Expand;

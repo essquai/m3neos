@@ -24,7 +24,7 @@ FROM RT0 IMPORT Typecode;
 (* The allocator and collector maintain two heaps of objects.  One heap is
    "traced" (its objects are collected); the other is "untraced".
 
-   The allocator for the untraced heap is simply "malloc".  Unless
+   RTReference is the module that allocates for both, using RefType.  Unless
    explicitly noted, all procedures and variables here are for the traced
    heap.  Unless explicitly noted, none of the variables in this interface
    are writable. *)

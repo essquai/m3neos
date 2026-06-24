@@ -14,7 +14,7 @@
 UNSAFE MODULE RTAllocator
 EXPORTS RTAllocator, RTAllocCnts, RTHooks, RTHeapRep;
 
-IMPORT Cstdlib, RT0, RTMisc, RTOS, RTType, Scheduler, RTThread;
+IMPORT RTReference, RT0, RTMisc, RTOS, RTType, Scheduler, RTThread;
 IMPORT RuntimeError AS RTE, Word;
 FROM RTType IMPORT Typecode;
 
@@ -23,6 +23,9 @@ FROM RTType IMPORT Typecode;
 
 TYPE
   TK = RT0.TypeKind;
+  (* In this module, allocate from untraced heap type - memory for
+     traced REFs are allocated in the RTCollector module  *)
+  HT = RTReference.RefType;
 
 (*----------------------------------------------------------- RTAllocator ---*)
 
@@ -158,7 +161,9 @@ PROCEDURE DisposeUntracedRef (VAR a: ADDRESS) =
   BEGIN
     IF a # NIL THEN
       Scheduler.DisableSwitching();
-      Cstdlib.free(a);
+      (* superceded *)
+      (* Cstdlib.free(a); *)
+      RTReference.free(a, HT.Untraced);
       a := NIL;
       Scheduler.EnableSwitching();
     END;
@@ -170,7 +175,9 @@ PROCEDURE DisposeUntracedObj (VAR a: UNTRACED ROOT) =
     IF a # NIL THEN
       p := a - MAX(BYTESIZE(Header), RTType.Get(TYPECODE (a)).dataAlignment);
       Scheduler.DisableSwitching();
-      Cstdlib.free(p);
+      (* superceded *)
+      (* Cstdlib.free(p); *)
+      RTReference.free(p, HT.Untraced);
       Scheduler.EnableSwitching();
       a := NIL;
     END;
@@ -241,7 +248,9 @@ PROCEDURE GetUntracedRef (def: RT0.TypeDefn): ADDRESS =
       RTE.Raise(RTE.T.ValueOutOfRange);
     END;
     Scheduler.DisableSwitching();
-    res := Cstdlib.calloc(1, dataSize);
+    (* superceded *)
+    (* res := Cstdlib.calloc(1, dataSize); *)
+    res := RTReference.calloc(1, dataSize, HT.Untraced);
     Scheduler.EnableSwitching();
     IF res = NIL THEN RETURN NIL END;
     IF def.initProc # NIL THEN def.initProc(res); END;
@@ -260,7 +269,9 @@ PROCEDURE GetUntracedObj (def: RT0.TypeDefn): UNTRACED ROOT =
       RTE.Raise(RTE.T.ValueOutOfRange);
     END;
     Scheduler.DisableSwitching();
-    res := Cstdlib.calloc(1, size);
+    (* superceded *)
+    (* res := Cstdlib.calloc(1, size); *)
+    res := RTReference.calloc(1, size, HT.Untraced);
     Scheduler.EnableSwitching();
     IF res = NIL THEN RETURN NIL END;
     res := res + hdrSize;
@@ -316,7 +327,9 @@ PROCEDURE GetUntracedOpenArray (def: RT0.TypeDefn; READONLY s: Shape): ADDRESS =
     dataSize := ArraySize(LOOPHOLE(def, RT0.ArrayTypeDefn), s);
 
     Scheduler.DisableSwitching();
-    res := Cstdlib.calloc(1, dataSize);
+    (* superceded *)
+    (* res := Cstdlib.calloc(1, dataSize); *)
+    res := RTReference.calloc(1, dataSize, HT.Untraced);
     Scheduler.EnableSwitching();
     IF res = NIL THEN RETURN NIL END;
     InitArray (res, LOOPHOLE(def, RT0.ArrayTypeDefn), s);
@@ -440,8 +453,11 @@ PROCEDURE ExpandCnts (tc: RT0.Typecode) =
        while we're updating them... *)
 
     IF (old_cnts # NIL) THEN
-      Cstdlib.free (old_cnts);
-      Cstdlib.free (old_sizes);
+      (* superceded - switching not disabled here *)
+      (* Cstdlib.free (old_cnts); *)
+      (* Cstdlib.free (old_sizes); *)
+      RTReference.free(old_cnts, HT.Untraced);
+      RTReference.free(old_sizes, HT.Untraced);
     END;
   END ExpandCnts;
     
@@ -449,7 +465,9 @@ PROCEDURE Malloc (size: INTEGER): ADDRESS =
   VAR res: ADDRESS;
   BEGIN
     Scheduler.DisableSwitching();
-    res := Cstdlib.calloc(1, size);
+    (* superceded *)
+    (* res := Cstdlib.calloc(1, size); *)
+    res := RTReference.calloc(1, size, HT.Untraced);
     Scheduler.EnableSwitching();
     IF res = NIL THEN RTE.Raise(RTE.T.OutOfMemory) END;
     RETURN res;

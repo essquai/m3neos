@@ -16,9 +16,12 @@ PROCEDURE Exit (n: INTEGER);
 PROCEDURE Crash ();
 (* Terminate current process with a crash *)
 
+(* --- Superceded by RTReference module --- *)
+(* ******
 <* EXTERNAL "RTOS__GetMemory" *>
 PROCEDURE GetMemory (size: INTEGER): ADDRESS;
-(* Return the address of "size" bytes of unused storage *)
+ Return the address of "size" bytes of unused storage
+   ****** *)
 
 <* EXTERNAL "RTOS__Cygwin"*>
 PROCEDURE Cygwin (): BOOLEAN;

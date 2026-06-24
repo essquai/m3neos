@@ -46,8 +46,14 @@ void *nref_malloc(size_t size, nref_t ref);
 void *nref_calloc(size_t num, size_t size, nref_t ref);
 void nref_free(void *ptr, nref_t ref);
 
+/* Alias */
+void *vmalloc(size_t size);
+void *vcalloc(size_t num, size_t size);
+void vfree(void *ptr);
+
 /* Meta Information */
-void nref_sizes(long *bytes);
+void nref_sizes(size_t *bytes);
+void nref_memstat();
 struct mallinfo nref_mallinfo(nref_t ref);
 int  nref_validate_memory_regions(nref_t ref);
 void nref_dump_memory_regions(nref_t ref);

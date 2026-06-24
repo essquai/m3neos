@@ -89,6 +89,7 @@ CONST Prefix = ARRAY OF TEXT {
 "",
 "//neos reference type memory pool initialisation",
 "void __cdecl nref_prologue(int argc, char **argv);",
+"void __cdecl nref_memstat();",
 "//correct, but match preexisting m3core",
 "//void __cdecl RTLinker__InitRuntime(INTEGER argc, char** argv, char** envp, void* hinstance);",
 "void __cdecl RTLinker__InitRuntime(INTEGER argc, ADDRESS argv, ADDRESS envp, ADDRESS hinstance);",
@@ -388,6 +389,7 @@ PROCEDURE GenerateCEntry (VAR s: State) =
     GenAddUnits(s.top_units);
     GenAddUnits(s.main_units);
 
+    Out (s, "  nref_memstat ();", EOL);
     Out (s, "  RTProcess__Exit (0);", EOL);
     Out (s, "  return 0;", EOL);
     Out (s, "}", EOL, EOL);
@@ -402,6 +404,7 @@ PROCEDURE GenerateCGEntry (VAR s: State) =
     run_proc  : M3IR.Proc;
     link_proc : M3IR.Proc;
     link_proc2: M3IR.Proc;
+    stat_proc : M3IR.Proc;
     exit_proc : M3IR.Proc;
     getenv    : M3IR.Proc;
     winapi    : Target.CallingConvention;
@@ -464,6 +467,9 @@ PROCEDURE GenerateCGEntry (VAR s: State) =
       EVAL DeclareParam (s, "m", addr_t);
     END;
 
+    stat_proc := s.cg.import_procedure (M3ID.Add ("nref_memstat"), 0,
+                                       Target.IRType.Void, Target.DefaultCall);
+
     exit_proc := s.cg.import_procedure (M3ID.Add ("RTProcess__Exit"), 1,
                                        Target.IRType.Void, Target.DefaultCall);
     EVAL DeclareParam (s, "n", int_t);
@@ -521,7 +527,7 @@ PROCEDURE GenerateCGEntry (VAR s: State) =
       s.cg.load_integer (int_t, TInt.Zero);
       s.cg.store (self, 0, int_t, int_t);
 
-      (* neoref_prologue (argc, argv); *)
+      (* nref_prologue (argc, argv); *)
       s.cg.set_source_line (src_line);  INC (src_line);
       s.cg.start_call_direct (nref_proc, 0, Target.IRType.Void);
       s.cg.load (argc, 0, int_t, int_t);        (* argc *)
@@ -558,6 +564,11 @@ PROCEDURE GenerateCGEntry (VAR s: State) =
     GenAddUnitImports(s.main_units);
     GenAddUnits(s.top_units);
     GenAddUnits(s.main_units);
+
+    (*  nref_memstat (); *)
+    s.cg.set_source_line (src_line);  INC (src_line);
+    s.cg.start_call_direct (stat_proc, 0, Target.IRType.Void);
+    s.cg.call_direct (stat_proc, Target.IRType.Void);
 
     (*  RTProcess.Exit (0); *)
     s.cg.set_source_line (src_line);  INC (src_line);

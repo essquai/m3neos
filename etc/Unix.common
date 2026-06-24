@@ -261,6 +261,11 @@ proc compile_c(source, object, options, optimize, debug) is
        SYSTEM_CXXC = SYSTEM_CC
     end
 
+    % hack: RTReferences needs some macros defined.
+    % TODO: add c_options flags in m3makefiles for c
+    %
+    args += "-DMALLOC=vmalloc -DEMMALLOC_MEMVALIDATE -DEMMALLOC_VERBOSE"
+
     local ret_code = 1
 
     if equal(source, "_m3main.c")

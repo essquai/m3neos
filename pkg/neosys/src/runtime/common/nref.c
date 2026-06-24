@@ -353,7 +353,7 @@ typedef struct {
     nref_t refType;
 
 // Defined allocation for this REF type
-    long numBytes;
+    size_t numBytes;
 
 // Linear memory segment from which references of this type are allocate
 // Treated by the nref_sbrk series of functions - see above for details.
@@ -810,14 +810,12 @@ void nref_prologue(int argc, char **argv) {
   // determine the pool sizes from the command line
   //
   params[Virtual]  = 0;
-  params[Untraced] = 2 * 1024 * 1024;
-  params[Traced]   = 4 * 1024 * 1024;
+  params[Untraced] = 0;
+  params[Traced]   = 0;
 
   for (int i = 1; i < argc; i++) {
     for (int a = 0; a < 3; a++) {
-      if (arg_match(argv[i], argName[a], &params[a])) {
-        printf("nref_prologue match %s --> %ld\n", argName[a], params[a]);
-      }
+      arg_match(argv[i], argName[a], &params[a]);
     }
   }
 
@@ -825,11 +823,6 @@ void nref_prologue(int argc, char **argv) {
   nref_from_orbit();
   nref_define(params[Untraced], Untraced);
   nref_define(params[Traced], Traced);
-  printf("nref_prologue:\n");
-
-  for (int i = 0; i < 3; i++) {
-    printf("    %s%ld\n", argName[i], params[i]);
-  }
 }
 
 
@@ -1159,6 +1152,10 @@ void *nref_malloc(size_t size, nref_t ref) {
   return emmalloc_memalign(MALLOC_ALIGNMENT, size, ref);
 }
 
+void *vmalloc(size_t size) {
+  return emmalloc_memalign(MALLOC_ALIGNMENT, size, Virtual);
+}
+
 void nref_free(void *ptr, nref_t ref) {
   rctx_t *ctx = &rctx[ref];
   assert(ctx->segment.defined);
@@ -1227,9 +1224,22 @@ void nref_free(void *ptr, nref_t ref) {
 #endif
 }
 
+void vfree(void *ptr) {
+  nref_free(ptr, Virtual);
+}
+
 void *nref_calloc(size_t num, size_t size, nref_t ref) {
   size_t bytes = num*size;
   void *ptr = emmalloc_memalign(MALLOC_ALIGNMENT, bytes, ref);
+  if (ptr) {
+    memset(ptr, 0, bytes);
+  }
+  return ptr;
+}
+
+void *vcalloc(size_t num, size_t size) {
+  size_t bytes = num*size;
+  void *ptr = emmalloc_memalign(MALLOC_ALIGNMENT, bytes, Virtual);
   if (ptr) {
     memset(ptr, 0, bytes);
   }
@@ -1253,7 +1263,7 @@ static size_t count_linked_list_space(Region *list) {
 }
 
 // return each context's numBytes parameter
-void nref_sizes(long *bytes) {
+void nref_sizes(size_t *bytes) {
   int i;
   for (int i = 0; i < 3; i++) {
     bytes[i] = rctx[i].numBytes;
@@ -1333,6 +1343,20 @@ struct mallinfo nref_mallinfo(nref_t ref) {
   return info;
 }
 
+static char *nref_name[] = {"Virtual ",
+                            "Untraced",
+                            "Traced  "};
+void nref_memstat() {
+  nref_t ref;
+  size_t s;
+  size_t f;
+
+  for (ref = Virtual; ref <= Traced; ref++) {
+    s = nref_dynamic_heap_size(ref);
+    f = nref_free_dynamic_memory(ref);
+    printf("%s %ld %ld:%ld\n", nref_name[ref], rctx[ref].numBytes, s, f);
+  }
+}
 
 size_t nref_dynamic_heap_size(nref_t ref) {
   rctx_t *ctx = &rctx[ref];

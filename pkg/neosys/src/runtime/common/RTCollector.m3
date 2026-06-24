@@ -18,12 +18,16 @@ IMPORT RT0, RTHeapEvent, RTHeapMap, RTIO;
 IMPORT RTMisc, RTOS, RTParams, RTPerfTool, RTProcess, RTType;
 IMPORT Word, Thread, RTThread;
 IMPORT TextLiteral AS TextLit, RTLinker, Time;
+IMPORT RTReference, Scheduler;
 
 FROM RT0 IMPORT Typecode, TypeDefn;
 FROM RT0 IMPORT Forwarded, GetTypecode, Dirty, Gray, Weak, MarkA, MarkB,
                 SetForwarded, SetDirty, SetGray, SetWeak, SetMarkA,
                 SetMarkB;
 TYPE TK = RT0.TypeKind;
+(* In this module, allocate from traced heap type - this module
+   collects for garbage-collected memory  *)
+TYPE HT = RTReference.RefType;
 
 (* The allocator/garbage collector for the traced heap is an adaptation of
    the algorithm presented in the WRL Research Report 88/2, ``Compacting
@@ -31,7 +35,7 @@ TYPE TK = RT0.TypeKind;
    this report for a detailed presentation.  John DeTreville modified it to
    be incremental, generational, and VM-synchronized.
 
-   The allocator/collector for the untraced heap is simply malloc/free. *)
+   The allocator/collector for the untraced heap is RTReference. *)
 
 (* Much of the code below incorrectly assumes no difference between ADRSIZE
    and BYTESIZE. *)
@@ -2618,7 +2622,13 @@ PROCEDURE GrowHeap (pp: INTEGER): BOOLEAN =
         bytes := MIN (bytes, max_heap - total_heap);
         IF (bytes <= 0) THEN RETURN FALSE; END;
       END;
-      newChunk := RTOS.GetMemory(bytes);
+
+      (* Superceded by RTReference *)
+      (* newChunk := RTOS.GetMemory(bytes); *)
+      Scheduler.DisableSwitching();
+      newChunk := RTReference.malloc(bytes, HT.Traced);
+      Scheduler.EnableSwitching();
+
       INC (total_heap, bytes);
       IF heap_stats THEN
         RTIO.PutText ("Grow (");

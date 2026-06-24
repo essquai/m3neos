@@ -387,6 +387,10 @@ ThreadPThread__GetActivation(void)
 
 static pthread_key_t activations;
 
+/* nref memory scheme wrapper to deal up virtual */
+void * __cdecl vcalloc(size_t num, size_t size);
+void __cdecl vfree(void *ptr);
+
 void
 __cdecl
 ThreadPThread__SetActivation(void *value)
@@ -412,7 +416,7 @@ __cdecl
 ThreadPThread_pthread_generic_new(WORD_T size, generic_init_t init)
 {
   int r = ENOMEM;
-  void *p = calloc(1, size);
+  void *p = vcalloc(1, size);
   if (p == NULL)
     goto Error;
   M3_RETRY(init(p, NULL));
@@ -428,7 +432,7 @@ Error:
     fprintf(stderr, "ERROR: pthread_generic_new:%d\n", r);
     abort();
   }
-  if (p) free(p);
+  if (p) vfree(p);
   return NULL;
 }
 
@@ -478,7 +482,7 @@ ThreadPThread__pthread_mutex_delete(pthread_mutex_t* p)
       fprintf(stderr, "pthread_mutex_destroy:%d\n", e);
     abort();
   }
-  free(p);
+  vfree(p);
 }
 
 void
@@ -489,7 +493,7 @@ ThreadPThread__pthread_cond_delete(pthread_cond_t *p)
   if (p == NULL) return;
   r = pthread_cond_destroy(p);
   assert(r == 0);
-  free(p);
+  vfree(p);
 }
 
 #define BILLION (1000 * 1000 * 1000)

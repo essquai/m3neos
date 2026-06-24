@@ -267,13 +267,19 @@ extern const unsigned _stklen;
 //const unsigned _stklen = 1UL << 20; // 1MB todo verify this works for initial stack (stub is supposed to use this)
 #endif
 
+/* nref memory scheme wrapper to deal up virtual */
+void *vmalloc(size_t size);
+void * __cdecl vcalloc(size_t num, size_t size);
+void __cdecl vfree(void *ptr);
+
+
 void *
 __cdecl
 MakeContext(void (*p)(void), INTEGER words)
 {
   int err1 = 0;
   int err2 = 0;
-  Context* c = (Context*)calloc (1, sizeof(*c));
+  Context* c = (Context*)vcalloc (1, sizeof(*c));
   size_t size = sizeof(void *) * words;
   size_t pagesize = getpagesize();
   char* aligned_start = 0;
@@ -313,7 +319,8 @@ MakeContext(void (*p)(void), INTEGER words)
     goto Error;
 
 #ifdef __DJGPP__
-  c->free = unaligned_start = (char*)malloc (size);
+  /* c->free = unaligned_start = (char*)malloc (size); */
+  c->free = unaligned_start = (char*)vmalloc (size);
 #else
   c->map = unaligned_start = aligned_start = (char*)mmap (NULL, size, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
   c->map_size = size;
@@ -432,12 +439,12 @@ DisposeContext(Context** pc)
             if (c->mprotect[i])
                 mprotect(c->mprotect[i], c->pagesize, PROT_READ | PROT_WRITE);
         }
-        free(c->free);
+        vfree(c->free);
 #ifndef __DJGPP__
         if (c->map)
             if (munmap(c->map, c->map_size)) abort();
 #endif
-        free(c);
+        vfree(c);
         errno = er;
     }
 }

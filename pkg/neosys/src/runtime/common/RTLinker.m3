@@ -17,6 +17,8 @@ IMPORT RTTypeSRC, RTSignal, RTThread, RTHeapInfo, RTLinkerX,
 IMPORT RTReference;
 
 TYPE
+  (* In this module, allocate from virtual heap type - memory is
+     allocated for runtime setup, they aren't REFs *)
   HT = RTReference.RefType;
 
 VAR
@@ -60,7 +62,7 @@ PROCEDURE InitRuntime (p_argc: INTEGER;  p_argv, p_envp, p_instance: ADDRESS) =
     AddUnit (RTLinkerX.Word_I3);
 
     (* finally, initialize the runtime. *)
-    RTReference.sizes(ADR(RTReference.Params[HT.Virtual])); (* memory! *)
+    RTReference.sizes(ADR(RTReference.Params[HT.Virtual])); (* collect ref parameters *)
     RTSignal.InstallHandlers ();
     RTParams.Init ();
     RTThread.Init ();
@@ -215,14 +217,20 @@ PROCEDURE ExpandModuleTable () =
     IF (modules = NIL) THEN
       (* first time... *)
       max_modules := InitialTableSize;
-      modules := Cstdlib.malloc (InitialTableSize * BYTESIZE (RT0.ModulePtr));
+      (* superceded *)
+      (* modules := Cstdlib.malloc (InitialTableSize * BYTESIZE (RT0.ModulePtr)); *)
+      modules := RTReference.malloc (InitialTableSize * BYTESIZE (RT0.ModulePtr), HT.Virtual);
       IF (modules = NIL) THEN Cstdlib.abort (); END;
     ELSE
       n_bytes := max_modules * BYTESIZE (RT0.ModulePtr);
-      new_mods := Cstdlib.malloc (n_bytes + n_bytes);
+      (* superceded *)
+      (* new_mods := Cstdlib.malloc (n_bytes + n_bytes); *)
+      new_mods := RTReference.malloc (n_bytes + n_bytes, HT.Virtual);
       IF (new_mods = NIL) THEN Cstdlib.abort (); END;
       EVAL Cstring.memcpy (new_mods, modules, n_bytes);
-      Cstdlib.free (modules);
+      (* superceded *)
+      (* Cstdlib.free (modules); *)
+      RTReference.free (modules, HT.Virtual);
       modules := new_mods;
       INC (max_modules, max_modules);
     END;
@@ -427,14 +435,20 @@ PROCEDURE ExpandInitStack () =
     IF max_init_stack = 0 THEN
       (* first time... *)
       max_init_stack := InitialStackSize;
-      init_stack := Cstdlib.malloc (InitialStackSize * BYTESIZE (InitDesc));
+      (* superceded *)
+      (* init_stack := Cstdlib.malloc (InitialStackSize * BYTESIZE (InitDesc)); *)
+      init_stack := RTReference.malloc (InitialStackSize * BYTESIZE (InitDesc), HT.Virtual);
       IF (init_stack = NIL) THEN Cstdlib.abort (); END;
     ELSE
       n_bytes := max_init_stack * BYTESIZE (InitDesc);
-      new_inits := Cstdlib.malloc (n_bytes + n_bytes);
+      (* superceded *)
+      (* new_inits := Cstdlib.malloc (n_bytes + n_bytes); *)
+      new_inits := RTReference.malloc (n_bytes + n_bytes, HT.Virtual);
       IF (new_inits = NIL) THEN Cstdlib.abort (); END;
       EVAL Cstring.memcpy (new_inits, init_stack, n_bytes);
-      Cstdlib.free (init_stack);
+      (* superceded *)
+      (* Cstdlib.free (init_stack); *)
+      RTReference.free (init_stack);
       init_stack := new_inits;
       INC (max_init_stack, max_init_stack);
     END;

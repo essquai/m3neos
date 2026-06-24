@@ -9,7 +9,7 @@
 
 UNSAFE MODULE M3toC;
 
-IMPORT Ctypes, Cstdlib, Cstring;
+IMPORT Ctypes, RTReference, Cstring;
 IMPORT Text, TextClass, Text8, Text8CString;
 IMPORT Scheduler;
 
@@ -24,6 +24,9 @@ TYPE
     start  : ADDRESS;
     length : INTEGER;
   END;
+  (* In this module, allocate from untraced heap type - C strings
+     aren't native to M3 and should be manually freed  *)
+  HT = RTReference.RefType;
 
 PROCEDURE CopyTtoS (t: TEXT): Ctypes.char_star =
   VAR info: TextClass.Info;  arr: OpenArray;
@@ -31,7 +34,9 @@ PROCEDURE CopyTtoS (t: TEXT): Ctypes.char_star =
     IF (t = NIL) THEN RETURN zeroPtr; END;
     t.get_info (info);
     Scheduler.DisableSwitching ();
-    arr.start  := Cstdlib.malloc (info.length + 1);
+    (* superceded *)
+    (* arr.start  := Cstdlib.malloc (info.length + 1); *)
+    arr.start  := RTReference.malloc (info.length + 1, HT.Untraced);
     Scheduler.EnableSwitching ();
     arr.length := info.length;
     Text.SetChars (LOOPHOLE (ADR (arr), ArrayPtr)^, t, 0);
@@ -42,7 +47,9 @@ PROCEDURE CopyTtoS (t: TEXT): Ctypes.char_star =
 PROCEDURE FreeCopiedS (s: Ctypes.const_char_star) =
   BEGIN
     IF (s # NIL) AND (s # zeroPtr) THEN
-      Cstdlib.free (s);
+      (* superceded *)
+      (* Cstdlib.free (s); *)
+      RTReference.free (s, HT.Untraced);
     END;
   END FreeCopiedS;
 
@@ -66,7 +73,9 @@ PROCEDURE FreeSharedS (t: TEXT;  s: Ctypes.const_char_star) =
     IF (s # NIL) AND (s # zeroPtr) THEN
       t.get_info (info);
       IF (info.start # s) THEN
-        Cstdlib.free (s);
+        (* superceded *)
+        (* Cstdlib.free (s); *)
+        RTReference.free (s, HT.Untraced);
       END;
     END;
   END FreeSharedS;

@@ -24,6 +24,8 @@
 
 INTERFACE RTReference;
 
+FROM Cstddef IMPORT size_t;
+
 TYPE RefType = { Virtual, Untraced, Traced };
 (* Not intended for application code. The neos M3 compiler will generate
    runtime allocation code from the correct pool. The Traced REF type
@@ -31,7 +33,7 @@ TYPE RefType = { Virtual, Untraced, Traced };
    application invoked. Virtual is used internally by the runtime
    startup and to pre-allocate heaps for Untraced and Traced types. *)
 
-VAR Params : ARRAY RefType OF LONGINT;
+VAR Params : ARRAY RefType OF size_t;
 (* Sizes defined for each RefType pool *)
 
 <* EXTERNAL "nref_sizes"*>
@@ -39,14 +41,14 @@ PROCEDURE sizes(params: ADDRESS);
 (* Intended for RTLinker to pull the Params set by prologue *)
 
 <*EXTERNAL "nref_malloc"*>
-PROCEDURE malloc(size : LONGINT; type: RefType := RefType.Virtual) : ADDRESS;
+PROCEDURE malloc(size : size_t; type: RefType := RefType.Virtual) : ADDRESS;
 (* Allocate memory from the given REF type. The resulting address
    must only be returned to the pool of the same RefType or undefined
    runtime behaviour will occur. Returns NIL upon pool exhaustion. *)
 
 
 <*EXTERNAL "nref_calloc"*>
-PROCEDURE calloc(num: LONGINT; size: LONGINT; type: RefType := RefType.Virtual) : ADDRESS;
+PROCEDURE calloc(num: size_t; size: size_t; type: RefType := RefType.Virtual) : ADDRESS;
 (* Identicial to malloc with the memory initialised to zero. *)
 
 

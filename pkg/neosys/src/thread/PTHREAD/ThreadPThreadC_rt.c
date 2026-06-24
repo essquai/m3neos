@@ -45,6 +45,10 @@ ThreadPThread__pthread_setschedprio(pthread_t t,
 #endif
 }
    
+
+/* nref memory scheme wrapper to deal up virtual */
+void * __cdecl vcalloc(size_t num, size_t size);
+
 // mutex support 
 
 void *
@@ -60,7 +64,7 @@ int ret;
   pthread_mutexattr_t attr;
   pthread_mutex_t *mu;
     
-  mu = (pthread_mutex_t *) calloc(1, sizeof(pthread_mutex_t));    
+  mu = (pthread_mutex_t *) vcalloc(1, sizeof(pthread_mutex_t));    
 
   ret = pthread_mutexattr_init(&attr);
   if (ret) fprintf(stderr, "ERROR: pthread_mutex_rt mutextattr_init:%d\n", ret); 
