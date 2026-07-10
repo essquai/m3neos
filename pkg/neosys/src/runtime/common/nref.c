@@ -18,7 +18,6 @@
 #include <stdbool.h>
 #include <assert.h>
 #include <unistd.h>
-#include <stdatomic.h>
 #include <stdalign.h>
 #include <stdio.h>
 #include <stdarg.h>
@@ -28,9 +27,54 @@
 #include <malloc.h>
 
 #include "nref.h"
+#include "nsyn.h"
+
+
+/*-------------------------------------------------------- lock functions ---*/
+typedef struct {
+    nsyn_lock_t sync;
+    int value;
+} nref_lock_t;
+
+// In multithreaded builds, use a simple global spinlock strategy to acquire/release access to the memory allocator.
+#define MALLOC_ACQUIRE(ref) nref_lock_grab(&rctx[ref].multithreadingLock)
+#define MALLOC_RELEASE(ref) nref_lock_drop(&rctx[ref].multithreadingLock)
+// Test code to ensure we have tight malloc acquire/release guards in place.
+#define ASSERT_MALLOC_IS_ACQUIRED(ref) nref_lock_assert(&rctx[ref].multithreadingLock)
+
+
+/* nref_lock_init()
+ *     initialise a lock
+ */
+static void nref_lock_init(nref_lock_t *lock) {
+    nsyn_init(&lock->sync);
+    lock->value = 0;
+}
+
+/* nref_lock_grab()
+ *     acquire lock
+ */
+static void nref_lock_grab(nref_lock_t *lock) {
+    nsyn_lock(&lock->sync);
+    lock->value = 1;
+}
+
+/* nref_lock_drop()
+ *     relinquish lock
+ */
+static void nref_lock_drop(nref_lock_t *lock) {
+    lock->value = 0;
+    nsyn_unlock(&lock->sync);
+}
+
+/* nref_lock_assert()
+ *     we've got this
+ */
+static void nref_lock_assert(nref_lock_t *lock) {
+    assert(lock->value > 0);
+}
 
 /*-------------------------------------------------------- sbrk functions ---*/
-
 typedef struct {
     /* user heap */
     bool       defined;
@@ -42,6 +86,8 @@ typedef struct {
     char      *brkAddr;
 } segment_t; 
 #define NREF_SBRK_FAIL ((void *) -1)
+
+static nref_lock_t nref_sbrk_mutex = { NSYN_LOCK_INIT, 0};
 
 
 /* nref_sbrk_vary()
@@ -58,10 +104,13 @@ static void *nref_sbrk_vary(intptr_t numBytes, segment_t *segment) {
 
     if (segment->heapAddr == NULL) {
         /* heap not predefined --> unleash sbrk! */
+        /* ... excusively ... */
+        nref_lock_grab(&nref_sbrk_mutex);
         prevBrk = sbrk(numBytes);
         if (prevBrk != NREF_SBRK_FAIL) {
             segment->brkCurr += numBytes;
         }
+        nref_lock_drop(&nref_sbrk_mutex);
     } else {
       /* emulate sbrk from pre-defined buffer */
       nextCurr = segment->brkCurr + numBytes;
@@ -112,54 +161,6 @@ void nref_sbrk_stat(intptr_t *heapSize, intptr_t *curr, segment_t *segment) {
     return;
 }
 
-
-/*-------------------------------------------------------- lock functions ---*/
-typedef struct {
-    atomic_flag flag;
-    int value;
-} nref_lock_t;
-
-// In multithreaded builds, use a simple global spinlock strategy to acquire/release access to the memory allocator.
-#define MALLOC_ACQUIRE(ref) nref_lock_grab(&rctx[ref].multithreadingLock)
-#define MALLOC_RELEASE(ref) nref_lock_drop(&rctx[ref].multithreadingLock)
-// Test code to ensure we have tight malloc acquire/release guards in place.
-#define ASSERT_MALLOC_IS_ACQUIRED(ref) nref_lock_assert(&rctx[ref].multithreadingLock)
-
-
-/* nref_lock_init()
- *     initialise a lock
- */
-static void nref_lock_init(nref_lock_t *lock) {
-    atomic_flag_clear(&lock->flag);
-    lock->value = 0;
-}
-
-/* nref_lock_grab()
- *     acquire lock
- */
-static void nref_lock_grab(nref_lock_t *lock) {
-    while (atomic_flag_test_and_set(&lock->flag)) {
-        /* spin */
-    }
-    lock->value = 1;
-}
-
-/* nref_lock_drop()
- *     relinquish lock
- */
-static void nref_lock_drop(nref_lock_t *lock) {
-    lock->value = 0;
-    atomic_flag_clear(&lock->flag);
-}
-
-/* nref_lock_assert()
- *     we've got this
- */
-static void nref_lock_assert(nref_lock_t *lock) {
-    assert(lock->value > 0);
-}
-
-
 /*-------------------------------------------------------- diag functions ---*/
 
 #define NREF_DIAG_CACHE  512
@@ -173,8 +174,8 @@ static struct {
 
 static int         nref_diag_index;
 static double      nref_diag_zero;
-static nref_lock_t nref_diag_mutex = { ATOMIC_FLAG_INIT, 0};
-;
+static nref_lock_t nref_diag_mutex = { NSYN_LOCK_INIT, 0};
+
 
 /* nref_diag_when
  *     ersatz timestamp
@@ -831,8 +832,6 @@ void nref_from_orbit() {
 
   nref_diag_init();
   for (ref = Virtual; ref <= Traced; ref++) {
-    MALLOC_ACQUIRE(ref);
-
     rctx[ref].refType = ref;
     rctx[ref].numBytes = -1;
     
@@ -842,8 +841,7 @@ void nref_from_orbit() {
     rctx[ref].segment.brkCurr = 0;
     rctx[ref].segment.brkAddr = NULL;
 
-    atomic_flag_clear(&rctx[ref].multithreadingLock.flag);
-    rctx[ref].multithreadingLock.value = 0;
+    nref_lock_init(&rctx[ref].multithreadingLock);
 
     rctx[ref].listOfAllRegions = NULL;
     // Initialize circular doubly linked lists representing free space
@@ -853,8 +851,6 @@ void nref_from_orbit() {
       rctx[ref].freeRegionBuckets[i].prev = rctx[ref].freeRegionBuckets[i].next = &rctx[ref].freeRegionBuckets[i];
     }
     rctx[ref].freeRegionBucketsUsed = 0;
-
-    MALLOC_RELEASE(ref);
   }
 
   // the 'Virtual' nref doesn't have a pre-defined size

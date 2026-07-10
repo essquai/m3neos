@@ -54,6 +54,7 @@ void *spawn(void *a) {
     bool    passed;
     char   name[128];
     int    i, j;
+    int    most;
     nref_t ref = Untraced;
     assert (p->seq < SEQ_MAX);
 
@@ -61,16 +62,18 @@ void *spawn(void *a) {
     passed = true;
     for (j = 0; j < p->cycle && passed; j++) {
         /* alloc */
+        most = p->seq;
         for (i = 0; i < p->seq && passed; i++) {
             addr[i] = nref_malloc(p->kilo * KB, ref);
             if (!addr[i]) {
+              most = i;
               passed = false;
               printf("%s: malloc failed on %d\n", name, i);
             }
         }
 
         /* free  */
-        for (i = 0; i < p->seq && passed; i++) {
+        for (i = 0; i < p->seq && i < most; i++) {
             nref_free(addr[i], ref);
         }
     }
@@ -96,6 +99,7 @@ int main(int argc, char *argv[]) {
     pthread_t     thr[SPAWN_MAX];
     int     N;
     int     n;
+    int     most;
     nref_t  ref = Untraced;
     long    params[3];
     
@@ -141,9 +145,11 @@ int main(int argc, char *argv[]) {
     if (diagnostic) nref_diag_dump();
 
     name = "alloc 10 128K"; passed = true;
+    most = 10;
     for (i = 0; i < 10 && passed; i++) {
         addr[i] = nref_malloc(128 * KB, ref);
         if (!addr[i]) {
+          most = i;
           passed = false;
           printf("malloc 128K failed on %d\n", i);
         }
@@ -152,7 +158,7 @@ int main(int argc, char *argv[]) {
     if (diagnostic) nref_diag_dump();
 
     name = "free 10 128K"; passed = true;
-    for (i = 0; i < 10 && passed; i++) {
+    for (i = 0; i < 10 && i < most && passed; i++) {
         nref_free(addr[i], ref);
         if (nref_validate_memory_regions(ref) == 0) {
             if (diagnostic) printf("free 128K valid %d\n", i);
@@ -166,15 +172,17 @@ int main(int argc, char *argv[]) {
     if (diagnostic) nref_diag_dump();
 
     name = "reverse 10 128K"; passed = true;
+    most = 10;
     for (i = 0; i < 10 && passed; i++) {
         addr[i] = nref_malloc(128 * KB, ref);
         if (!addr[i]) {
+          most = i;
           passed = false;
           printf("rev alloc 128K failed on %d\n", i);
         }
     }
     if (diagnostic) nref_diag_dump();
-    for (i = 9; i >= 0 && passed; i--) {
+    for (i = most - 1; i >= 0; i--) {
         nref_free(addr[i], ref);
         if (nref_validate_memory_regions(ref) != 0) {
           passed = false;
