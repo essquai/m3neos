@@ -1,4 +1,5 @@
 #include "nref.h"
+#include "nsyn.h"
 
 #include <stdio.h>
 #include <stdbool.h>
@@ -6,6 +7,7 @@
 #include <assert.h>
 #include <stdint.h>
 #include <pthread.h>
+#include <time.h>
 
 /* tracking */
 static float test = 0.0;
@@ -37,6 +39,7 @@ static char heap[2 * KB * KB];
 #define SPAWN_MAX  256
 #define ADDR_MAX   4096
 static void *addr[ADDR_MAX];
+static nsyn_lock_t cond;
 
 typedef struct {
     int  num;
@@ -87,6 +90,25 @@ void *spawn(void *a) {
     return (a);
 }
 
+void *signalpoint(void *a) {
+    nsyn_lock_t *cvar = a;
+    struct timespec dur;
+
+    dur.tv_sec = 0;
+    dur.tv_nsec = 100000000;
+
+    /* send signals */
+    for (int i = 0; i < 10; i++) {
+        nanosleep(&dur, NULL);
+        nsyn_lock(cvar);
+        nsyn_signal(cvar);
+        nsyn_unlock(cvar);
+        printf("+"); fflush(NULL);
+    }
+    return (a);
+}
+
+
 int main(int argc, char *argv[]) {
     bool    passed;
     char   *name;
@@ -102,6 +124,7 @@ int main(int argc, char *argv[]) {
     int     most;
     nref_t  ref = Untraced;
     long    params[3];
+    nsyn_lock_t *cvp;
     
 
     for (i = 1; i < argc; i++) {
@@ -193,6 +216,34 @@ int main(int argc, char *argv[]) {
     record(name, passed);
     nref_dump_memory_regions(ref);
     if (diagnostic) nref_diag_dump();
+
+
+    name = "conditions"; passed = true;
+    nsyn_init(&cond);
+    nsyn_lock(&cond); /* lock it as a pre-condition */
+    if (pthread_create(&thr[0], NULL, signalpoint, &cond)) {
+        printf("%s: thread create failure\n", name);
+        passed = false;
+    } else {
+        for (i = 0; i < 10 && passed; i++) {
+            nsyn_wait(&cond);
+            printf(". "); fflush(NULL);
+        }
+    }
+    printf("\n");
+    nsyn_unlock(&cond); /* free it now */
+    if (passed) {
+        if (!pthread_join(thr[0], (void **) &cvp)) {
+            if (cvp != &cond) {
+                passed = false;
+                printf("%s: thread join mismatch\n", name);
+            }
+        } else {
+            passed = false;
+            printf("%s: thread join failure\n", name);
+        }
+    }
+    record(name, passed);
 
 
     for (n = 0; n < sizeof(nlist); n++) {

@@ -41,6 +41,7 @@ extern "C" {
 typedef struct {
     _Atomic uint32_t next_ticket;   /* next ticket to hand out */
     _Atomic uint32_t now_serving;   /* ticket currently allowed to proceed */
+    _Atomic uint32_t cond_seq;      /* bumped on every signal/broadcast */
 } nsyn_lock_t;
 
 #define NSYN_LOCK_INIT { 0, 0 }
@@ -51,6 +52,18 @@ void nsyn_init(nsyn_lock_t *l);
 /* Acquire the lock. Blocks (parks the calling thread) until it is this
  * thread's turn. Fair: tickets are served strictly in issue order. */
 void nsyn_lock(nsyn_lock_t *l);
+
+/* Await a lock condition. The lock must have first been acquired. This
+ * function will wait until something else signals a change in condition. */
+void nsyn_wait(nsyn_lock_t *l);
+
+/* Signal a lock condition. The lock must have first been acquired. This
+ * function informs one observer of a change in condition. */
+void nsyn_signal(nsyn_lock_t *l);
+
+/* Broadcast a lock condition. The lock must have first been acquired. This
+ * function informs all observers the lock condition has changed. */
+void nsyn_broadcast(nsyn_lock_t *l);
 
 /* Release the lock. Must be called by the same thread that acquired it,
  * and must not be reached via longjmp — see header discipline notes above. */
