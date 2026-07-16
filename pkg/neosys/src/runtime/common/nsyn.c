@@ -14,6 +14,7 @@
 void nsyn_init(nsyn_lock_t *l) {
     atomic_store_explicit(&l->next_ticket, 0, memory_order_relaxed);
     atomic_store_explicit(&l->now_serving, 0, memory_order_relaxed);
+    atomic_store_explicit(&l->cond_seq, 0, memory_order_relaxed);
 }
 
 void nsyn_lock(nsyn_lock_t *l) {

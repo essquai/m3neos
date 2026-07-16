@@ -46,7 +46,7 @@ void nsyn_arch_wait32(_Atomic uint32_t *addr, uint32_t expected, int64_t timeout
      * Errors (EINTR, EAGAIN, ETIMEDOUT) are intentionally not distinguished
      * here: callers always re-check their own condition in a loop. */
     s = syscall(SYS_futex, (uint32_t *)addr, FUTEX_WAIT_PRIVATE, expected, ts_ptr, NULL, 0);
-    if (s == -1 && errno != EAGAIN) {
+    if (s == -1 && errno != EAGAIN && errno != EINTR && errno != ETIMEDOUT) {
         printf("FUTEX_WAIT: %ld %d\n", s, errno);
         abort();
     }

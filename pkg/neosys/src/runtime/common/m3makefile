@@ -22,8 +22,14 @@ Interface ("RTReference")
 c_source  ("nref")
 Interface ("RTSync")
 c_source  ("nsyn")
+if equal (TARGET, "x86_64")
 c_source  ("nsyn_x86_64")
-%c_source  ("nsyn_wasm32")
+end
+if equal (TARGET, "wasm32")
+c_source  ("nsyn_wasm32")
+end
+
+c_source  ("ngcs")
 Module    ("RTAllocator")
 Interface ("RTAllocCnts")
 Module    ("RTAllocStats")

@@ -44,7 +44,7 @@ typedef struct {
     _Atomic uint32_t cond_seq;      /* bumped on every signal/broadcast */
 } nsyn_lock_t;
 
-#define NSYN_LOCK_INIT { 0, 0 }
+#define NSYN_LOCK_INIT { 0, 0, 0 }
 
 /* Initialize a lock at runtime (equivalent to NSYN_LOCK_INIT). */
 void nsyn_init(nsyn_lock_t *l);
@@ -57,12 +57,12 @@ void nsyn_lock(nsyn_lock_t *l);
  * function will wait until something else signals a change in condition. */
 void nsyn_wait(nsyn_lock_t *l);
 
-/* Signal a lock condition. The lock must have first been acquired. This
- * function informs one observer of a change in condition. */
+/* Signal a lock condition. Ensure the state has changed and committed.
+ * This function informs one observer the lock condition has changed. */
 void nsyn_signal(nsyn_lock_t *l);
 
-/* Broadcast a lock condition. The lock must have first been acquired. This
- * function informs all observers the lock condition has changed. */
+/* Broadcast a lock condition. Ensure the state has changed and committed.
+ * This function informs all observers the lock condition has changed. */
 void nsyn_broadcast(nsyn_lock_t *l);
 
 /* Release the lock. Must be called by the same thread that acquired it,

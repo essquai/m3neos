@@ -26,6 +26,7 @@ TYPE
   T = RECORD
     next_ticket  : uint32_t;
     next_serving : uint32_t;
+    cond_seq     : uint32_t;
   END;
 
 
@@ -38,12 +39,25 @@ PROCEDURE Lock(VAR lock: T);
 (* Acquire the lock. Blocks (parks the calling thread) until it is this
    threads turn. Fair: tickets are served strictly in issue order. *)
 
-
 <*EXTERNAL "nsyn_unlock"*>
 PROCEDURE Unlock(VAR lock: T);
 (* Release the lock. Must be called by the same thread that acquired it,
    and must not be reached via longjmp — see header discipline notes above. *)
 
+<*EXTERNAL "nsyn_wait"*>
+PROCEDURE Wait(VAR lock: T);
+(* Await a lock condition. The lock must have first been acquired. This
+ * function will wait until something else signals a change in condition. *)
+
+<*EXTERNAL "nsyn_signal"*>
+PROCEDURE Signal(VAR lock: T);
+(* Signal a lock condition. The lock must have first been acquired. This
+ * function informs one observer of a change in condition. *)
+
+<*EXTERNAL "nsyn_broadcast"*>
+PROCEDURE Broadcast(VAR lock: T);
+(* Broadcast a lock condition. The lock must have first been acquired. This
+ * function informs all observers the lock condition has changed. *)
 
 <*EXTERNAL "nsyn_trylock"*>
 PROCEDURE TryLock(VAR lock: T) : INTEGER;
