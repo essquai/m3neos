@@ -37,16 +37,18 @@ CONST
 
 TYPE
   M3BackendMode_t =
-  { C,          (* "0"  -- use M3CGen to produce C       *)
-    Llvm,       (* "1"  -- call m3llc to produce bitcode *)
-    Binaryen    (* "2"  -- call m3byen to produce wasm   *)
+  { C,          (* "0"  -- use m3C backend to produce C     *)
+    Llvm,       (* "1"  -- call m3llhost to produce bitcode *)
+    Binaryen,   (* "2"  -- call m3wasm to produce wasm      *)
+    Wasm        (* "3"  -- call m3llwasm to produce bitcode *)
   };
 
 CONST
   BackendModeStrings = ARRAY M3BackendMode_t OF TEXT
   { "C",
     "Llvm",
-    "Binaryen"
+    "Binaryen",
+    "Wasm"
   };
 
   TYPE MT = M3BackendMode_t; 
@@ -54,7 +56,7 @@ CONST
   CONST BackendBinaryenSet = SET OF M3BackendMode_t { MT.Binaryen };
     (* WASM via Binaryen API *)
 
-  CONST BackendLlvmSet = SET OF M3BackendMode_t { MT.Llvm }; 
+  CONST BackendLlvmSet = SET OF M3BackendMode_t { MT.Llvm, MT.Wasm }; 
     (* Native OR Wasm via Llc *)
 
   CONST BackendCSet = SET OF M3BackendMode_t { MT.C };
@@ -64,7 +66,8 @@ CONST
     {
       MT.C,
       MT.Llvm,
-      MT.Binaryen
+      MT.Binaryen,
+      MT.Wasm
     }; 
   
 

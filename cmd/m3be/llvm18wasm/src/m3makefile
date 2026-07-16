@@ -1,0 +1,14 @@
+import("neolib")
+import("m3ir")
+import("m3make")
+import("llvm18api")
+include("version.quake")
+version_impl("Version")
+
+module("LLVM_WASM")
+
+implementation("Main")
+
+%build_standalone()
+
+Program("m3llwasm")

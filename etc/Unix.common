@@ -175,6 +175,32 @@ if not defined("m3llhost")
 
 end % if not defined("m3llhost")
 
+%--------------------------------------------------------- m3llwasm ----------
+% Optionally, "m3llwasm" is called to translate cm3 IR to llvm IR.
+
+if not defined("m3llwasm")
+
+  proc m3llwasm(source, outfile, optimize, debug) is
+  % will we ever need optimize and/or debug?
+
+      local m3llwasmname = "@m3llwasm"
+
+      local args = [ "-b" ]
+
+      if debug
+        args += "-g"
+      end
+
+      % add the target to the m3llhost call.
+      args += "-t " & TARGET
+
+      %args += "-d" %While m3llwasm is under development.
+
+      return try_exec (m3llwasmname, args, "-o", outfile, source )
+  end % proc m3llwasm
+
+end % if not defined("m3llwasm")
+
 %--------------------------------------------------------- llvm backend ---
 % Optionally, "llvm_backend" is called to translate llvm bitcode to object code.
 
@@ -200,6 +226,7 @@ if not defined("llvm_backend")
 %llvm 8 changed option for frame pointer.
 %      local args = [ "-disable-fp-elim"]
 
+      args += "-mtriple=" & TARGET
       args += "--dwarf-directory=0 -filetype=" & filetype
       args += llvmback_pic
 

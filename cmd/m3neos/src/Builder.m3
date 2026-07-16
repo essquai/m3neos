@@ -111,6 +111,7 @@ REVEAL
     m3backend     : ConfigProc;         (* translate M3IR -> ASM or OBJ *)
     m3wasm        : ConfigProc;         (* translate M3IR -> WASM/WAT *) 
     m3llhost      : ConfigProc;         (* translate M3IR -> LLVM bitcode *) 
+    m3llwasm      : ConfigProc;         (* translate M3IR -> LLVM bitcode *) 
     llvmbackend   : ConfigProc;         (* translate llvm bitcode -> ASM or OBJ *)
     llvmopt       : ConfigProc;         (* optimize llvm bitcode *)
     c_compiler    : ConfigProc;         (* compile C code *)
@@ -320,6 +321,7 @@ PROCEDURE CompileUnits (main     : TEXT;
     s.m3backend   := GetConfigProc (s, "m3_backend", 4);
     s.m3wasm      := GetConfigProc (s, "m3wasm", 5); 
     s.m3llhost    := GetConfigProc (s, "m3llhost", 4); 
+    s.m3llwasm    := GetConfigProc (s, "m3llwasm", 4); 
     s.llvmbackend := GetConfigProc (s, "llvm_backend", 5);
     s.llvmopt     := GetConfigProc (s, "llvm_opt", 2);
     s.c_compiler  := GetConfigProc (s, "compile_c", 5);
@@ -1362,7 +1364,8 @@ PROCEDURE PushOneM3 (s: State;  u: M3Unit.T): BOOLEAN =
     mode := s.m3backend_mode;
     boot := s.bootstrap_mode;
     need_merge := FALSE;
-    DoRunM3llvm : BOOLEAN := FALSE;
+    DoRunM3llhost : BOOLEAN := FALSE;
+    DoRunM3llwasm : BOOLEAN := FALSE;
     DoRunLlc :BOOLEAN := FALSE;
     DoRunM3wasm : BOOLEAN := FALSE;
     DoWriteAsm : BOOLEAN := FALSE; (* Pass asm option to code generator. *)  
@@ -1379,9 +1382,9 @@ PROCEDURE PushOneM3 (s: State;  u: M3Unit.T): BOOLEAN =
       C                       : m3 => c => o
       C boot                  : m3 => c
       Llvm boot?              : m3 => ml (using m3llhost)
-      Llvm host               : m3 => mc =>(using m3llhost) mb =>(using llc) o 
-      Llvm wasm               : m3 => mc =>(using m3llhost) mb =>(using llc) wasm
-      Binaryen                : m3 => mc =>(using m3byen) wasm
+      Llvm                    : m3 => mc =>(using m3llhost) mb =>(using llc) o 
+      Wasm                    : m3 => mc =>(using m3llwasm) mb =>(using llc) o
+      Binaryen                : m3 => mc =>(using m3wasm) wasm
 *)
     u.link_info := NIL;
     ResetExports (s, u);
@@ -1392,7 +1395,13 @@ PROCEDURE PushOneM3 (s: State;  u: M3Unit.T): BOOLEAN =
     | Mode_t.Llvm => 
         llvmIRName := LlvmIRNameForUnit (u);  
         llvmIROptName := LlvmIROptNameForUnit (u);
-        DoRunM3llvm := TRUE; 
+        DoRunM3llhost := TRUE; 
+        codeGenOutName := u.object; 
+        DoRunLlc := NOT boot; 
+    | Mode_t.Wasm => 
+        llvmIRName := LlvmIRNameForUnit (u);  
+        llvmIROptName := LlvmIROptNameForUnit (u);
+        DoRunM3llwasm := TRUE; 
         codeGenOutName := u.object; 
         DoRunLlc := NOT boot; 
      | Mode_t.Binaryen => 
@@ -1444,8 +1453,11 @@ PROCEDURE PushOneM3 (s: State;  u: M3Unit.T): BOOLEAN =
         IF ok AND DoRunM3wasm THEN
           ok := RunM3Wasm (s, cm3IRName, wasmName, u.debug, u.optimize, DoWriteAsm);
         END;
-        IF ok AND DoRunM3llvm THEN
+        IF ok AND DoRunM3llhost THEN
           ok := RunM3LlvmHost (s, cm3IRName, llvmIRName, u.debug, u.optimize);
+        END; 
+        IF ok AND DoRunM3llwasm THEN
+          ok := RunM3LlvmWasm (s, cm3IRName, llvmIRName, u.debug, u.optimize);
         END; 
         IF ok AND DoRunLlc THEN
           IF u.optimize THEN
@@ -2224,6 +2236,27 @@ PROCEDURE RunM3LlvmHost (s: State;  source, object: TEXT;
     RETURN NOT failed;
   END RunM3LlvmHost;
 
+PROCEDURE RunM3LlvmWasm (s: State;  source, object: TEXT;
+                     debug, optimize: BOOLEAN): BOOLEAN (* Success. *) =
+  VAR failed: BOOLEAN;
+  BEGIN
+    ETimer.Push (M3Timers.m3llwasm);
+    s.machine.timer := M3Timers.m3llwasm;
+    StartCall (s, s.m3llwasm);
+    PushText (s, source);
+    PushText (s, object);
+    PushBool (s, optimize);
+    PushBool (s, debug);
+    failed := CallProc (s, s.m3llwasm);
+    IF failed THEN
+      s.compile_failed := TRUE;
+      Msg.Error (NIL, "m3llwasm failed compiling: ", source);
+      IF NOT s.keep_files THEN Utils.Remove (object); END;
+    END;
+    ETimer.Pop ();
+    RETURN NOT failed;
+  END RunM3LlvmWasm;
+
 PROCEDURE RunLlcBack 
   (s: State;  source, object: TEXT; debug, optimize: BOOLEAN; Asm: BOOLEAN)
 : BOOLEAN (* Success. *) =
@@ -2364,6 +2397,7 @@ PROCEDURE GenerateCGMain (s: State;  <*UNUSED*>Main_O: TEXT) =
 
     CASE mode OF
     | Mode_t.Binaryen,
+      Mode_t.Wasm,
       Mode_t.Llvm,
       Mode_t.C
     =>  (* TODO *)
