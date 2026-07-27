@@ -75,6 +75,11 @@ void nsyn_unlock(nsyn_lock_t *l);
  * on failure, so it cannot cause starvation of waiting threads. */
 int nsyn_trylock(nsyn_lock_t *l);
 
+/* Block and resume 'hence' seconds from now. No lock is needed, this
+   synchronisation is to a specified point in time in the future. */
+void nsyn_resume(double hence);
+
+
 /* ---- Architecture-specific primitives (implemented per target) ---- */
 
 /* Block the calling thread while *addr == expected. May return spuriously;

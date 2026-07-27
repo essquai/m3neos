@@ -66,4 +66,9 @@ PROCEDURE TryLock(VAR lock: T) : INTEGER;
    already held by someone else. Does not participate in / consume a ticket
    on failure, so it cannot cause starvation of waiting threads. *)
 
+<*EXTERNAL "nsyn_resume"*>
+PROCEDURE Resume(hence: LONGREAL);
+(* Block and resume 'hence' seconds from now. No lock is needed, this
+   synchronisation is to a specified point in time in the future. *)
+
 END RTSync.

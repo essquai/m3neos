@@ -76,3 +76,12 @@ void nsyn_broadcast(nsyn_lock_t *l) {
     atomic_fetch_add_explicit(&l->cond_seq, 1, memory_order_release);
     nsyn_arch_wake32(&l->cond_seq, NSYN_MAX_THREAD);  /* wake all, avoiding the UINT32_MAX pitfall */
 }
+
+#define NSYN_AWAIT 42
+static _Atomic int32_t nsyn_nocondition = NSYN_AWAIT;
+
+void nsyn_resume(double hence) {
+    int64_t timeout = (int64_t) (hence * 1e9);
+    if (timeout < 0) return;
+    nsyn_arch_wait32(&nsyn_nocondition, NSYN_AWAIT, timeout);
+}
