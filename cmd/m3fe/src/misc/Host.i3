@@ -17,6 +17,7 @@ VAR (* parameters to the top-level compile *)
   env           : M3Compiler.Environment;
 
 VAR (* misc. options *)
+  neoglobal     : BOOLEAN := FALSE; (* generate global var declarations *)
   verbose       : BOOLEAN := FALSE; (* => diagnostic listing of phases *)
   errorDie      : INTEGER := -1;    (* N>=0 => abort on the Nth error *)
   warnings      : INTEGER := 2;     (* => ignore levels less than this value *)
