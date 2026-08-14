@@ -59,10 +59,11 @@ int nsyn_trylock(nsyn_lock_t *l) {
     return 1; /* we now hold ticket == current == now_serving: lock acquired */
 }
 
-void nsyn_wait(nsyn_lock_t *l) {
+void nsyn_wait(nsyn_lock_t *l, double hence) {
+    int64_t timeout = (int64_t) (hence * 1e9);
     uint32_t seq = atomic_load_explicit(&l->cond_seq, memory_order_acquire);
     nsyn_unlock(l);
-    nsyn_arch_wait32(&l->cond_seq, seq, -1);   /* returns on change or spuriously */
+    nsyn_arch_wait32(&l->cond_seq, seq, timeout);   /* returns on change or spuriously */
     nsyn_lock(l);
     /* caller re-checks its predicate in its own loop, Mesa-semantics style */
 }

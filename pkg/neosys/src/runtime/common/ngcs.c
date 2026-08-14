@@ -25,7 +25,7 @@ void ngcs_park() {
     pending = atomic_load_explicit(&ngcs_global.gc_pending, memory_order_relaxed);
 
     while (pending == 1) {
-        nsyn_wait(&ngcs_global.gc_mutex);
+        nsyn_wait(&ngcs_global.gc_mutex, -1.0);
         pending = atomic_load_explicit(&ngcs_global.gc_pending, memory_order_relaxed);
     }
 
@@ -42,7 +42,7 @@ void ngcs_wait(int32_t current_parked) {
     while (parked < current_parked) {
         parked = atomic_load_explicit(&ngcs_global.threads_parked, memory_order_relaxed);
         if (parked < current_parked) {
-            nsyn_wait(&ngcs_global.gc_mutex);
+            nsyn_wait(&ngcs_global.gc_mutex, -1.0);
         }
     }
     nsyn_unlock(&ngcs_global.gc_mutex);

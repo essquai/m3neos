@@ -45,18 +45,18 @@ PROCEDURE Unlock(VAR lock: T);
    and must not be reached via longjmp — see header discipline notes above. *)
 
 <*EXTERNAL "nsyn_wait"*>
-PROCEDURE Wait(VAR lock: T);
+PROCEDURE Wait(VAR lock: T; hence: LONGREAL := -1.0D0);
 (* Await a lock condition. The lock must have first been acquired. This
  * function will wait until something else signals a change in condition. *)
 
 <*EXTERNAL "nsyn_signal"*>
 PROCEDURE Signal(VAR lock: T);
-(* Signal a lock condition. The lock must have first been acquired. This
+(* Signal a lock condition. Ensure state is changed and comitted. This
  * function informs one observer of a change in condition. *)
 
 <*EXTERNAL "nsyn_broadcast"*>
 PROCEDURE Broadcast(VAR lock: T);
-(* Broadcast a lock condition. The lock must have first been acquired. This
+(* Broadcast a lock condition. Ensure state is changed and comitted. This
  * function informs all observers the lock condition has changed. *)
 
 <*EXTERNAL "nsyn_trylock"*>

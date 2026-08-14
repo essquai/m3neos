@@ -55,7 +55,7 @@ void nsyn_lock(nsyn_lock_t *l);
 
 /* Await a lock condition. The lock must have first been acquired. This
  * function will wait until something else signals a change in condition. */
-void nsyn_wait(nsyn_lock_t *l);
+void nsyn_wait(nsyn_lock_t *l, double timeout);
 
 /* Signal a lock condition. Ensure the state has changed and committed.
  * This function informs one observer the lock condition has changed. */
