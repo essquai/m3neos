@@ -21,7 +21,7 @@ implementation ("Compiler")
 Interface ("RTReference")
 h_source  ("nref")
 c_source  ("nref")
-Interface ("RTSync")
+
 h_source  ("nsyn")
 c_source  ("nsyn")
 if equal (TARGET, "x86_64")

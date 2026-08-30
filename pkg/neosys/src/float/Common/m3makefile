@@ -8,7 +8,7 @@
 
 % temporarily disable Grisu for C backend until problems investigated
 % C fails at runtime
-if equal (M3_BACKEND_MODE, "C")
+if equal (M3_BACKEND, "C")
   include_dir("no_grisu")
 else
   include_dir("grisu")
