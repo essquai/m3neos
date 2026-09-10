@@ -1018,7 +1018,7 @@ class PackageCommand(WithPackageActions):
         "Get the version from the current tag"
         if self._tag is None:
             try:
-                self._tag = subprocess.check_output(["git", "describe", "--abbrev=0"], errors="ignore").rstrip()
+                self._tag = subprocess.check_output(["git", "describe", "--abbrev=0", "--tags"], errors="ignore").rstrip()
             except:
                 # Parse the release information
                 rel_path = self.source("etc") / "m3neos.release"
