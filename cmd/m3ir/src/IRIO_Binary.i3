@@ -22,7 +22,7 @@ INTERFACE IRIO_Binary;
 *) 
 
 CONST
-  Version = 16_120;  (* version 1.20 *)
+  Version = 16_130;  (* version 1.30 *)
   (* Please update Version if you change the codes in this file. *) 
 
 TYPE

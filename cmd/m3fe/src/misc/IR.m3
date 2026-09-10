@@ -513,7 +513,7 @@ PROCEDURE Declare_temp (s: Size;  a: Alignment;  t: Type;
     LOOP
       IF (w = NIL) THEN
         (* we need to allocate a fresh one *)
-        tmp := cg.declare_temp (ToVarSize (s, a), ByteAlign (a), t, in_memory);
+        tmp := cg.declare_temp (ToVarSize (s, a), ByteAlign (a), t, M3IR.NO_UID, in_memory);
         busy_temps := NEW (TempWrapper, size := s, align := a, type := t,
                            in_mem := in_memory, temp := tmp,
                            block := block_cnt, next := busy_temps);
@@ -1622,6 +1622,7 @@ PROCEDURE LoadIndirectStraddling (t: Type; o: Offset; s: Size) =
                (Target.Word.bytes,
                 TargetMap.CG_Align_bytes [Target.Word.cg_type],
                 Target.Word.cg_type,
+                M3IR.NO_UID,
                 in_memory := FALSE); 
 
     (* This uses a mix of cg.* calls, which only alter the M3IR stack,
@@ -1644,6 +1645,7 @@ PROCEDURE LoadIndirectStraddling (t: Type; o: Offset; s: Size) =
                (Target.Address.bytes,
                 TargetMap.CG_Align_bytes [Type.Addr],
                 Type.Addr,
+                M3IR.NO_UID,
                 in_memory := FALSE); 
     cg.store (byteAddr, 0, Type.Addr, Type.Addr);
                                            (* Ba+o.A     ; *)
@@ -1657,6 +1659,7 @@ PROCEDURE LoadIndirectStraddling (t: Type; o: Offset; s: Size) =
                     (Target.Address.bytes,
                      TargetMap.CG_Align_bytes [Type.Addr],
                      Type.Addr,
+                     M3IR.NO_UID,
                      in_memory := FALSE);
       cg.load (byteAddr, 0, Type.Addr, Type.Addr);
                                            (*            ; Ba+o.A *)
@@ -1675,6 +1678,7 @@ PROCEDURE LoadIndirectStraddling (t: Type; o: Offset; s: Size) =
                      (Target.Word.bytes,
                       TargetMap.CG_Align_bytes [Target.Word.cg_type],
                       Target.Word.cg_type,
+                      M3IR.NO_UID,
                       in_memory := FALSE);
       cg.load (byteAddr, 0, Type.Addr, Type.Addr);
                                            (*            ; Ba+o.A *)
@@ -1712,6 +1716,7 @@ PROCEDURE LoadIndirectStraddling (t: Type; o: Offset; s: Size) =
                      (Target.Integer.bytes,
                       TargetMap.CG_Align_bytes [Target.Integer.cg_type],
                       Target.Integer.cg_type,
+                      M3IR.NO_UID,
                       in_memory := FALSE);
       cg.store (word1BitCt, 0, Target.Integer.cg_type, Target.Integer.cg_type);
                                            (*            ; *)
@@ -2459,6 +2464,7 @@ PROCEDURE StoreIndirectStraddling
                (Target.Word.bytes,
                 TargetMap.CG_Align_bytes [Target.Word.cg_type],
                 Target.Word.cg_type,
+                M3IR.NO_UID,
                 in_memory := FALSE);
     TWord.nBitsOnRight (s, (*OUT*) fieldMask);
     IF PleaseZextField THEN 
@@ -2479,6 +2485,7 @@ PROCEDURE StoreIndirectStraddling
                (Target.Address.bytes,
                 TargetMap.CG_Align_bytes [Type.Addr],
                 Type.Addr,
+                M3IR.NO_UID,
                 in_memory := FALSE); 
     cg.store (byteAddr, 0, Type.Addr, Type.Addr);
                                            (* Ba+o.A     ; *)
@@ -2491,6 +2498,7 @@ PROCEDURE StoreIndirectStraddling
                     (Target.Address.bytes,
                      TargetMap.CG_Align_bytes [Type.Addr],
                      Type.Addr,
+                     M3IR.NO_UID,
                      in_memory := FALSE);
       cg.load (byteAddr, 0, Type.Addr, Type.Addr);
                                            (*            ; Ba+o.A *)
@@ -2510,6 +2518,7 @@ PROCEDURE StoreIndirectStraddling
                      (Target.Word.bytes,
                       TargetMap.CG_Align_bytes [Target.Word.cg_type],
                       Target.Word.cg_type,
+                      M3IR.NO_UID,
                       in_memory := FALSE);
       cg.load (byteAddr, 0, Type.Addr, Type.Addr);
                                            (*            ; Ba+o.A *)
@@ -2576,6 +2585,7 @@ PROCEDURE StoreIndirectStraddling
                      (Target.Word.bytes,
                       TargetMap.CG_Align_bytes [Target.Word.cg_type],
                       Target.Word.cg_type,
+                      M3IR.NO_UID,
                       in_memory := FALSE);
       cg.load_integer (Target.Word.cg_type, TInt.MOne);
                                            (*            ; -1.W fr.W w0a.A *)

@@ -266,7 +266,7 @@ declare_param (n: Name;  s: ByteSize;  a: Alignment;  t: Type;
    procedure with a nonscalar result, and this is a compiler-generated
    VAR parameter used to return the result.  *)
 
-declare_temp (s: ByteSize;  a: Alignment;  t: Type;
+declare_temp (s: ByteSize;  a: Alignment;  t: Type; m3t: TypeUID;
               in_memory: BOOLEAN; typename := M3ID.NoID): Var;
 (* Declare an anonymous local temporary variable.  Temps are declared
    and freed between their containing procedure's begin_procedure and

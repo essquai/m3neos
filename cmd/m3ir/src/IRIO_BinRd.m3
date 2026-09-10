@@ -815,10 +815,11 @@ PROCEDURE declare_temp (VAR s: State) =
   VAR size   := Scan_int (s);
       align  := Scan_int (s);
       type   := Scan_type (s);
+      m3t    := Scan_tipe (s);
       in_mem := Scan_bool (s);
       v      := Scan_int (s);
   BEGIN
-    AddVar (s, v, s.cg.declare_temp (size, align, type, in_mem));
+    AddVar (s, v, s.cg.declare_temp (size, align, type, m3t, in_mem));
   END declare_temp;
 
 PROCEDURE free_temp (VAR s: State) =

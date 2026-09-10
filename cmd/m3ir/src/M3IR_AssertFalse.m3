@@ -207,7 +207,7 @@ AssertFalse();
 RETURN NIL;
 END declare_param;
 
-<*NOWARN*>PROCEDURE declare_temp(self: T; byte_size: ByteSize; alignment: Alignment; type: Type; in_memory: BOOLEAN; typename: Name): Var =
+<*NOWARN*>PROCEDURE declare_temp(self: T; byte_size: ByteSize; alignment: Alignment; type: Type; typeid: TypeUID; in_memory: BOOLEAN; typename: Name): Var =
 BEGIN
 AssertFalse();
 RETURN NIL;

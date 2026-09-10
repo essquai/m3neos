@@ -402,11 +402,11 @@ self.Add(NEW(declare_param_t, op := Op.declare_param, name := name, byte_size :=
 RETURN var;
 END declare_param;
 
-PROCEDURE declare_temp(self: T; byte_size: ByteSize; alignment: Alignment; type: Type; in_memory: BOOLEAN; <*UNUSED*>typename: Name): Var =
+PROCEDURE declare_temp(self: T; byte_size: ByteSize; alignment: Alignment; type: Type; typeid: TypeUID; in_memory: BOOLEAN; <*UNUSED*>typename: Name): Var =
 VAR var := self.refs.NewVar();
 BEGIN
 TypeVersusSize (type, byte_size);
-self.Add(NEW(declare_temp_t, op := Op.declare_temp, byte_size := byte_size, alignment := alignment, type := type, in_memory := in_memory, tag := var.tag));
+self.Add(NEW(declare_temp_t, op := Op.declare_temp, byte_size := byte_size, alignment := alignment, type := type, typeid := typeid, in_memory := in_memory, tag := var.tag));
 RETURN var;
 END declare_temp;
 
@@ -1145,7 +1145,7 @@ END replay_declare_param;
 
 PROCEDURE replay_declare_temp(self: declare_temp_t; replay: Replay_t; cg: cg_t) =
 BEGIN
-    replay.PutRef(self.tag, cg.declare_temp(self.byte_size, self.alignment, self.type, self.in_memory));
+    replay.PutRef(self.tag, cg.declare_temp(self.byte_size, self.alignment, self.type, self.typeid, self.in_memory));
 END replay_declare_temp;
 
 PROCEDURE replay_import_procedure(self: import_procedure_t; replay: Replay_t; cg: cg_t) =

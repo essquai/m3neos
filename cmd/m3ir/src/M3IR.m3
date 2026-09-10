@@ -412,9 +412,9 @@ PROCEDURE declare_param (xx: T;  n: Name;  s: ByteSize;  a: Alignment;
   END declare_param;
 
 PROCEDURE declare_temp (xx: T;  s: ByteSize;  a: Alignment;  t: Type;
-                        in_memory:BOOLEAN; typename: Name): Var =
+                        m3t: TypeUID; in_memory:BOOLEAN; typename: Name): Var =
   BEGIN
-    RETURN xx.child.declare_temp (s, a, t, in_memory, typename);
+    RETURN xx.child.declare_temp (s, a, t, m3t, in_memory, typename);
   END declare_temp;
 
 PROCEDURE free_temp (xx: T;  v: Var) =

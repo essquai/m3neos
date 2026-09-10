@@ -672,14 +672,14 @@ PROCEDURE declare_param (self: T;  n: Name;  s: ByteSize;  a: Alignment; t: Type
   END declare_param;
 
 PROCEDURE declare_temp(self: T; byte_size: ByteSize; alignment: Alignment; type: Type;
- in_memory: BOOLEAN; typename: Name): Var =
+          m3t: TypeUID; in_memory: BOOLEAN; typename: Name): Var =
    VAR name : TEXT;
    BEGIN
      (* local variable, no typeUID, not up_levelled, likely accessed *)
      INC(self.next_temp);
      name := "TMP_" & Fmt.Int(self.next_temp);
      self.Trace("declare_temp ", name);
-     RETURN declare_local(self, M3ID.Add(name), byte_size, alignment, type, M3IR.NO_UID, in_memory, FALSE, M3IR.Likely, typename);
+     RETURN declare_local(self, M3ID.Add(name), byte_size, alignment, type, m3t, in_memory, FALSE, M3IR.Likely, typename);
    END declare_temp;
 
 PROCEDURE import_procedure (self: T;  n: Name;  n_params: INTEGER;

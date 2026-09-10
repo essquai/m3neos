@@ -481,11 +481,11 @@ PROCEDURE declare_param (xx: U;  n: Name;  s: ByteSize;  a: Alignment;
   END declare_param;
 
 PROCEDURE declare_temp (xx: U;  s: ByteSize;  a: Alignment;  t: Type;
-                        in_memory:BOOLEAN; typename: Name): Var =
+                        m3t: TypeUID; in_memory:BOOLEAN; typename: Name): Var =
   VAR result := NEW(VarPair);
   BEGIN
-    result.v1 := xx.child.declare_temp (s, a, t, in_memory, typename);
-    result.v2 := xx.child2.declare_temp (s, a, t, in_memory, typename);
+    result.v1 := xx.child.declare_temp (s, a, t, m3t, in_memory, typename);
+    result.v2 := xx.child2.declare_temp (s, a, t, m3t, in_memory, typename);
     RETURN result;
   END declare_temp;
 

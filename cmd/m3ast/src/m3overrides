@@ -1,0 +1,3 @@
+WORKDIR = ROOT & "/cmd"
+override ("m3ir", WORKDIR)
+override ("m3make",  WORKDIR)

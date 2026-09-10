@@ -1059,7 +1059,7 @@ PROCEDURE ITEInit(self : ITEObj) : ITEObj =
   BEGIN
     size := TypeSize(self.opType);
     self.curBB := LLVM.LLVMGetInsertBlock(builderIR);
-    self.tmpVar := self.curObj.declare_temp (size, size, self.opType, TRUE);
+    self.tmpVar := self.curObj.declare_temp (size, size, self.opType, M3IR.NO_UID, TRUE);
 
     WITH cp = self.curObj.curProc.lvProc DO
       IF self.beforeBB = NIL THEN
@@ -2086,9 +2086,9 @@ PROCEDURE declare_param (self: U;  n: Name;  s: ByteSize;  a: Alignment; t: Type
     RETURN v;
   END declare_param;
 
-PROCEDURE declare_temp (self: U; s: ByteSize; a: Alignment; t: Type; in_memory: BOOLEAN; <*UNUSED*>typeName : Name): Var =
+PROCEDURE declare_temp (self: U; s: ByteSize; a: Alignment; t: Type; m3t: TypeUID; in_memory: BOOLEAN; <*UNUSED*>typeName : Name): Var =
   VAR
-    v : LvVar := NewVar(self,M3ID.NoID,s,a,t,FALSE,0,in_memory,FALSE,FALSE,FALSE,M3IR.Maybe,VarType.Temp);
+    v : LvVar := NewVar(self,M3ID.NoID,s,a,t,FALSE,m3t,in_memory,FALSE,FALSE,FALSE,M3IR.Maybe,VarType.Temp);
   BEGIN
     (* temps are always declared inside a begin_procedure. However we
        allocate them in the entry BB to avoid dominate all uses problems,
@@ -3672,7 +3672,7 @@ PROCEDURE GenDivMod(self : U; t : IType; isDiv : BOOLEAN; numVal,denVal,divVal,m
     IF isDiv THEN storeVal := divVal; ELSE storeVal := modVal; END;
 
     curBB := LLVM.LLVMGetInsertBlock(builderIR);
-    tmpVar := self.declare_temp (size, size, t, TRUE);
+    tmpVar := self.declare_temp (size, size, t, M3IR.NO_UID, TRUE);
     res := LLVM.LLVMBuildStore(builderIR, storeVal, tmpVar.lv);
 
     thenBB := LLVM.LLVMAppendBasicBlock(self.curProc.lvProc, LT("divmod_then"));
@@ -5307,7 +5307,7 @@ PROCEDURE pop_param (self: U;  t: MType) =
   END pop_param;
 
 PROCEDURE pop_struct
-  (self: U; <*UNUSED*> t: TypeUID; s: ByteSize; <*UNUSED*> a: Alignment) =
+  (self: U; t: TypeUID; s: ByteSize; <*UNUSED*> a: Alignment) =
   (* pop s0.A, it's a pointer to a structure occupying 's' bytes that's
     'a' byte aligned;  It is passed by value in M3, but llvm code passes
     the *address* of the structure, so we first make a copy here. *)
@@ -5324,7 +5324,7 @@ PROCEDURE pop_struct
      *)
     IF NOT llvmByval THEN
       (* Allocate a temp for the copy in the entry BB *)
-      copyRef := self.declare_temp (s, s, Type.Struct, TRUE);
+      copyRef := self.declare_temp (s, s, Type.Struct, t, TRUE);
       (* Generate the copy. *)
       len_lVal := LLVM.LLVMConstInt(IntPtrTy, VAL(s,LONGINT), TRUE);
       DoMemCopy(expr.lVal, copyRef.lv, len_lVal, align:=1, overlap:=FALSE);

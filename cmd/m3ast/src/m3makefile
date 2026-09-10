@@ -1,0 +1,8 @@
+
+import ("m3ir")
+import ("m3C")
+import ("m3make")
+
+implementation ("Main")
+build_standalone ()
+Program ("m3ast")

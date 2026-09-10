@@ -782,7 +782,7 @@ PROCEDURE declare_param (u: U;  n: Name;  s: ByteSize;  a: Alignment;
     RETURN v;
   END declare_param;
 
-PROCEDURE declare_temp   (u: U;  s: ByteSize;  a: Alignment;  t: Type;
+PROCEDURE declare_temp   (u: U;  s: ByteSize;  a: Alignment;  t: Type; m3t: TypeUID;
                           in_memory:BOOLEAN; <*UNUSED*>typename: Name): Var =
   VAR v := NewVar (u);
   BEGIN
@@ -790,6 +790,7 @@ PROCEDURE declare_temp   (u: U;  s: ByteSize;  a: Alignment;  t: Type;
     Int   (u, s);
     Int   (u, a);
     TName (u, t);
+    Tipe  (u, m3t);
     Bool  (u, in_memory);
     VName (u, v);
     RETURN v;

@@ -813,13 +813,15 @@ PROCEDURE declare_param (u: U;  n: Name;  s: ByteSize;  a: Alignment;
   END declare_param;
 
 PROCEDURE declare_temp   (u: U;  s: ByteSize;  a: Alignment;  t: Type;
-                          in_memory:BOOLEAN; <*UNUSED*>typename: Name): Var =
+                          m3t: TypeUID; in_memory:BOOLEAN;
+                          <*UNUSED*>typename: Name): Var =
   VAR v := NewVar (u);
   BEGIN
     Cmd   (u, "declare_temp");
     Int   (u, s);
     Int   (u, a);
     TName (u, t);
+    Tipe  (u, m3t);
     Bool  (u, in_memory);
     VName (u, v);
     NL    (u);

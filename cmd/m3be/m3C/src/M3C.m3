@@ -5134,6 +5134,7 @@ PROCEDURE GetStructSizes_declare_temp(
     byte_size: ByteSize;
     alignment: Alignment;
     type: IRType;
+    <*UNUSED*>typeid: TypeUID;
     <*UNUSED*>in_memory:BOOLEAN;
     <*UNUSED*>typename: Name): M3IR.Var =
 BEGIN
@@ -5517,6 +5518,7 @@ PROCEDURE Locals_declare_temp(
     byte_size: ByteSize;
     alignment: Alignment;
     type: IRType;
+    <*UNUSED*>typeid: TypeUID;
     <*UNUSED*>in_memory:BOOLEAN;
     typename: Name): M3IR.Var =
 BEGIN
