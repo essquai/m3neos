@@ -287,12 +287,13 @@ PROCEDURE GenOpenArray (t: Type.T;  traced: BOOLEAN;
   VAR
     n := LAST (ce.args^); (* number of open dimensions *)
     sizesAlign := MAX(Target.Address.align, Target.Integer.align);
+    m3t := Type.GlobalUID(t);
     sizes := IR.Declare_temp (Target.Address.pack + (n+1)*Target.Integer.pack,
 (*TODO:                       ^RefType.InitTypecell and possibly other places
                                handle possible alignment padding between the
                                elements-address and the shape, in case Integer
                                has higher alignment than Address. *)
-                              sizesAlign, IR.Type.Struct, in_memory := TRUE);
+                              sizesAlign, IR.Type.Struct, m3t, in_memory := TRUE);
     offset: INTEGER;
     proc := RunTyme.LookUpProc (PHook [traced]);
   BEGIN

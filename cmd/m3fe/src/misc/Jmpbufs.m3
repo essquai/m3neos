@@ -116,7 +116,8 @@ PROCEDURE CompileProcAllocateJmpbufs (p: Proc) =
     IF try_count > 1 THEN
       IR.Load_int(Target.Word.cg_type, size);
       size := IR.Declare_temp(Target.Address.size, Target.Address.align,
-                              Target.Word.cg_type, in_memory := FALSE);
+                              Target.Word.cg_type, IR.NO_UID,
+                              in_memory := FALSE);
       IR.Store_int(Target.Word.cg_type, size);
     END;
 

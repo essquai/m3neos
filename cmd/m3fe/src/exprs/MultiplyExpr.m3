@@ -100,7 +100,7 @@ PROCEDURE Check (p: P;  VAR cs: Expr.CheckState) =
   END Check;
 
 PROCEDURE Prep (p: P) =
-  VAR size: INTEGER;  info: Type.Info;
+  VAR size: INTEGER;  info: Type.Info; m3t : IR.TypeUID;
   BEGIN
     Expr.Prep (p.a);
     Expr.Prep (p.b);
@@ -108,8 +108,10 @@ PROCEDURE Prep (p: P) =
       EVAL Type.CheckInfo (p.type, info);
       size := info.size;
       IF (size > Target.Integer.size) THEN
+        m3t := Type.GlobalUID(p.type);
         p.tmp := IR.Declare_temp (size, Target.Integer.align,
-                                  IR.Type.Struct, in_memory := TRUE);
+                                  IR.Type.Struct, m3t,
+                                  in_memory := TRUE);
         IR.Load_addr_of (p.tmp, 0, Target.Integer.align);
         IR.ForceStacked ();
         Expr.Compile (p.a);

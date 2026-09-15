@@ -119,7 +119,8 @@ PROCEDURE Prep (p: P) =
       EVAL Type.CheckInfo (p.type, info);
       IF (info.size > Target.Word.size) THEN
         p.tmp := IR.Declare_temp (info.size, Target.Word.align,
-                                  IR.Type.Struct, in_memory := TRUE);
+                                  IR.Type.Struct, Type.GlobalUID(p.type),
+                                  in_memory := TRUE);
         IR.Load_addr_of (p.tmp, 0, Target.Word.align);
         IR.ForceStacked ();
         Expr.Compile (p.a);

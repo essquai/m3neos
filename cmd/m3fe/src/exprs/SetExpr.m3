@@ -699,10 +699,12 @@ PROCEDURE PrepBig (p: P;  VAR info: Type.Info): IR.Var =
     curMask      : Target.Int;
     n            : Node;
     tmp          : Target.Int;
+    m3t          : IR.TypeUID;
   BEGIN
     nWords := info.size DIV Grain;
+    m3t := Type.GlobalUID(p.tipe);
     t1 := IR.Declare_temp (nWords * Grain, Target.Word.align,
-                           IR.Type.Struct, in_memory := TRUE);
+                           IR.Type.Struct, m3t, in_memory := TRUE);
 
     (* generate the constant words *)
     n := p.tree;

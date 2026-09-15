@@ -1524,7 +1524,7 @@ PROCEDURE InnerPrep (top: T) =
     | RKTyp.RKTempElts, RKTyp.RKTempStatic =>
       (* Allocate a static-sized IR.Var temp to build elements into. *)
       top.buildTempVar := IR.Declare_temp
-        (top.totalSize, top.topRepAlign, IR.Type.Struct, in_memory:= TRUE);
+        (top.totalSize, top.topRepAlign, IR.Type.Struct, IR.NO_UID, in_memory:= TRUE);
 (* TODO: IR.Declare_whatever, for this and other declared temps. *)
 
       IF top.resultKind = RKTyp.RKTempStatic THEN
@@ -1561,7 +1561,8 @@ PROCEDURE InnerPrep (top: T) =
          building. *)
       shapeSize := top.dopeSize + Target.Integer.size;
       shapeVar := IR.Declare_temp (shapeSize, Target.Address.align,
-                                   IR.Type.Struct, in_memory := TRUE);
+                                   IR.Type.Struct, IR.NO_UID,
+                                   in_memory := TRUE);
 
       (* Gen code to initialize the shape array. *)
       IR.Load_addr_of

@@ -142,7 +142,7 @@ PROCEDURE EmitDebug (p: P) =
     msgs      := IR.Declare_temp (Target.Address.pack + Target.Integer.pack
                                     + p.n_msgs*Target.Address.pack,
                                   Target.Address.align, IR.Type.Struct,
-                                  in_memory := TRUE);
+                                  IR.NO_UID, in_memory := TRUE);
     offset: INTEGER;
   BEGIN
     Scanner.Here (this_file, this_line);

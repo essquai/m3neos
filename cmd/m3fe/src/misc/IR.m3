@@ -83,6 +83,7 @@ TYPE
     size   : Size;
     align  : Alignment;
     type   : Type;
+    m3t    : TypeUID;
     in_mem : BOOLEAN;
     block  : INTEGER;
   END;
@@ -501,7 +502,7 @@ PROCEDURE Declare_param (n: Name;  s: Size;  a: Alignment;  t: Type;
 (*----------------------------------------------------------- temporaries ---*)
 
 
-PROCEDURE Declare_temp (s: Size;  a: Alignment;  t: Type;
+PROCEDURE Declare_temp (s: Size;  a: Alignment;  t: Type; m3t: TypeUID;
                           in_memory: BOOLEAN): Var =
   (* If possible, get a temp off the free_temps list.  Otherwise, emit code to
      allocate a temp and use it.  Either way, put the temp on the busy_temps
@@ -513,13 +514,13 @@ PROCEDURE Declare_temp (s: Size;  a: Alignment;  t: Type;
     LOOP
       IF (w = NIL) THEN
         (* we need to allocate a fresh one *)
-        tmp := cg.declare_temp (ToVarSize (s, a), ByteAlign (a), t, M3IR.NO_UID, in_memory);
+        tmp := cg.declare_temp (ToVarSize (s, a), ByteAlign (a), t, m3t, in_memory);
         busy_temps := NEW (TempWrapper, size := s, align := a, type := t,
-                           in_mem := in_memory, temp := tmp,
+                           m3t := m3t, in_mem := in_memory, temp := tmp,
                            block := block_cnt, next := busy_temps);
         RETURN tmp;
       ELSIF (w.size = s) AND (w.align = a) AND (w.type = t) AND
-        (w.in_mem = in_memory) THEN
+        (w.m3t = m3t) AND (w.in_mem = in_memory) THEN
         (* we found a match *)
         IF (last_w = NIL)
           THEN free_temps := w.next;
@@ -539,7 +540,7 @@ PROCEDURE Declare_addr_temp (in_memory: BOOLEAN) : Var =
   BEGIN
     RETURN Declare_temp
              (Target.Address.size, Target.Address.align,
-              Type.Addr, in_memory);
+              Type.Addr, M3IR.NO_UID, in_memory);
   END Declare_addr_temp; 
 
 PROCEDURE Free_temp (<*UNUSED*> v: Var) =
@@ -628,7 +629,6 @@ PROCEDURE Free_block_temps (block: INTEGER) =
   END Free_block_temps;
 
 (*--------------------------------------------- direct stack manipulation ---*)
-
 PROCEDURE Pop (): Val =
 (* POST: result.Kind IN {Direct, Absolute, *)
   VAR z: Var;  v: Val;
@@ -653,7 +653,7 @@ PROCEDURE Pop (): Val =
     (* If it's on the M3IR stack, pop into a temporary. *)
     IF (v.kind = VKind.Stacked) THEN
       z := Declare_temp (TargetMap.CG_Size [v.type], TargetMap.CG_Align [v.type],
-                         v.type, in_memory := FALSE);
+                         v.type, M3IR.NO_UID, in_memory := FALSE);
       cg.store (z, 0, StackType[v.type], v.type);
       v.kind      := VKind.Direct;
       v.temp_base := TRUE;
@@ -912,7 +912,7 @@ PROCEDURE Force_byte_align (VAR x: ValRec; s: Size) =
             & VKindImage (x.kind));      
       (* Extract into a temp and change x to refer to it. *)
       Load (x.base, x.offset, s, x.base_align, word_align, Target.Word.cg_type);
-      tmp := Declare_temp (word_size, word_align, Target.Word.cg_type, in_memory := TRUE);
+      tmp := Declare_temp (word_size, word_align, Target.Word.cg_type, M3IR.NO_UID, in_memory := TRUE);
       IF Target.endian = Target.Endian.Big AND word_size > s THEN
         (* Left-justify the value in tmp. *) 
         EVAL TInt.FromInt(word_size - s, (*VAR*) shift_TInt);
@@ -3503,8 +3503,8 @@ PROCEDURE EnsureTempBase (t: Type; VAR x: ValRec) =
      be uninitialized. *) 
   BEGIN
     IF x.base = NIL OR NOT x.temp_base THEN
-      x.base := Declare_temp
-        (TargetMap.CG_Size[t], TargetMap.CG_Align[t], t, in_memory := FALSE);
+      x.base := Declare_temp (TargetMap.CG_Size[t], TargetMap.CG_Align[t], t,
+                              M3IR.NO_UID, in_memory := FALSE);
       x.base_align := TargetMap.CG_Align[t];
       x.temp_base := TRUE;
     END 
@@ -4273,7 +4273,7 @@ PROCEDURE ReduceBits (align: Alignment) : Var =
     IF save_bits # NIL THEN 
       WITH AddrVal = stack [SCheck (1, "ReduceBits2")] DO
         new_bits := Declare_temp (Target.Word.size, Target.Word.align,
-                Target.Word.cg_type, in_memory:= FALSE);
+                Target.Word.cg_type, M3IR.NO_UID, in_memory:= FALSE);
         bitCt := Log2OfAlign (align); 
         TWord.nBitsOnRight (bitCt, (*OUT*) bitsMask);
         cg.load (save_bits, 0, Target.Word.cg_type, Target.Word.cg_type);

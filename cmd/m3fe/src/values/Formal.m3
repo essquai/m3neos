@@ -713,10 +713,12 @@ PROCEDURE GenScalarCopy (type: Type.T) =
 (* POST: TOS replaced by the address of a temp of type 'type' containing a copy. *)
   VAR tempVar: IR.Var;
   VAR typeInfo: Type.Info;
+      m3t : IR.TypeUID;
   BEGIN
     EVAL Type.CheckInfo (Type.StripPacked (type), typeInfo);
+    m3t := Type.GlobalUID(type);
     tempVar := IR.Declare_temp
-      (typeInfo.size, typeInfo.alignment, typeInfo.mem_type, in_memory := TRUE);
+      (typeInfo.size, typeInfo.alignment, typeInfo.mem_type, m3t, in_memory := TRUE);
     IR.Store (tempVar, 0, typeInfo.size, typeInfo.alignment, typeInfo.mem_type);
     IR.Load_addr_of (tempVar, 0, typeInfo.alignment);
   END GenScalarCopy;
@@ -883,7 +885,7 @@ PROCEDURE GenClosure (actExpr: Expr.T;  proc: Expr.T) =
       (* allocate space for the closure *)
       n_elts := (M3RT.CL_SIZE + ASIZE - 1) DIV ASIZE;
       tmp := IR.Declare_temp (M3RT.CL_SIZE, Target.Address.align,
-                              IR.Type.Struct, in_memory := TRUE);
+                              IR.Type.Struct, IR.NO_UID, in_memory := TRUE);
 
       (* and fill it in *)
       IR.Store_addr (tmp, M3RT.CL_proc);
@@ -943,7 +945,7 @@ PROCEDURE CompileNCopyStructWInWord
   BEGIN
     actTempVar := IR.Declare_temp
        (Target.Word.size, Target.Word.align, Target.Word.cg_type,
-        in_memory := TRUE);
+        IR.NO_UID, in_memory := TRUE);
     IF formVal.hasError THEN
       IR.Load_intt (0);
     ELSE
@@ -1089,7 +1091,7 @@ PROCEDURE GenStruct
                 <* ASSERT formVal.tempCGVal = NIL *>
                 actTempVar := IR.Declare_temp
                   (formRepTypeInfo.size, formRepTypeInfo.alignment,
-                   IR.Type.Struct, in_memory := TRUE);
+                   IR.Type.Struct, Type.GlobalUID (formVal.repType), in_memory := TRUE);
                 (* ^Elements only, if array. *)
                 IR.Load_addr_of (actTempVar, 0, formRepTypeInfo.alignment);
                 Expr.Compile (actExpr);
@@ -1144,7 +1146,8 @@ PROCEDURE RedepthArray (formType, actType: Type.T; eltsCopySize: CARDINAL) =
       eltsAlign := MAX (actTypeInfo.alignment, formTypeInfo.alignment);
       eltsTempVar
         := IR.Declare_temp
-             (eltsCopySize, eltsAlign, IR.Type.Struct, in_memory := TRUE);
+             (eltsCopySize, eltsAlign, IR.Type.Struct, Type.GlobalUID(actType),
+              in_memory := TRUE);
       IR.Load_addr_of (eltsTempVar, 0, eltsAlign);
       IR.Push (actVal);
       IF actDepth > 0 THEN IR.Open_elt_ptr (actTypeInfo.alignment) END;

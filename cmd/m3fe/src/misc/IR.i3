@@ -45,6 +45,7 @@ PROCEDURE FormatUID(tUID: TypeUID) : TEXT;
 
 CONST (* see M3IR for the interpretation of these values *)
   No_label  = M3IR.No_label;
+  NO_UID    = M3IR.NO_UID;
 
 CONST (* see M3IR for the interpretation of these values *)
   Never  : Frequency = M3IR.Never;
@@ -208,7 +209,7 @@ PROCEDURE Declare_param (n: Name;  s: Size;  a: Alignment;  t: Type;
    order immediately following the 'declare_procedure' or
    'import_procedure' that contains them.  *)
 
-PROCEDURE Declare_temp (s: Size;  a: Alignment;  t: Type;
+PROCEDURE Declare_temp (s: Size;  a: Alignment;  t: Type; m3t: TypeUID;
                         in_memory: BOOLEAN): Var;
 (* declares an anonymous local variable.  Temps are declared
    and freed between their containing procedure's begin_procedure and

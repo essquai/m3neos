@@ -216,7 +216,7 @@ PROCEDURE DeclareDopeTemp (t: Type.T): IR.Var =
     size := Target.Address.pack + OpenDepth (p) * Target.Integer.pack;
   BEGIN
     RETURN IR.Declare_temp (size, Target.Address.align,
-                            IR.Type.Struct, in_memory := TRUE);
+                            IR.Type.Struct, IR.NO_UID, in_memory := TRUE);
   END DeclareDopeTemp;
 
 (* Externally dispatched-to: *)

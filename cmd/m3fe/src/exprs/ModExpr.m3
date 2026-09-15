@@ -95,7 +95,7 @@ PROCEDURE Check (p: P;  VAR cs: Expr.CheckState) =
   END Check;
 
 PROCEDURE Prep (p: P) =
-  VAR cg_type: IR.Type;  sz, align: INTEGER;  info: Type.Info;
+  VAR cg_type: IR.Type;  sz, align: INTEGER;  info: Type.Info; m3t : IR.TypeUID;
   BEGIN
     Expr.Prep (p.a);
     Expr.Prep (p.b);
@@ -107,11 +107,13 @@ PROCEDURE Prep (p: P) =
       cg_type := IRType [p.class];
 
       Expr.Compile (p.a);
-      p.tmp1 := IR.Declare_temp (sz, align, cg_type, in_memory := FALSE);
+      m3t := Type.GlobalUID(Type.Base (Expr.TypeOf (p.a)));
+      p.tmp1 := IR.Declare_temp (sz, align, cg_type, m3t, in_memory := FALSE);
       IR.Store (p.tmp1, 0, sz, align, cg_type);
 
       Expr.Compile (p.b);
-      p.tmp2 := IR.Declare_temp (sz, align, cg_type, in_memory := FALSE);
+      m3t := Type.GlobalUID(Type.Base (Expr.TypeOf (p.b)));
+      p.tmp2 := IR.Declare_temp (sz, align, cg_type, m3t, in_memory := FALSE);
       IR.Store (p.tmp2, 0, sz, align, cg_type);
     END;
   END Prep;

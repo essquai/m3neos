@@ -508,7 +508,7 @@ TYPE
 
   M3Intrinsic = {m3memset,m3memcpy,m3memmov,m3round,m3floor,m3trunc,
                  m3ceil,m3fabs,m3fmin,m3fmax,m3fshl,m3fshr,
-                 m3smin,m3smax,m3abs,m3sponentry};
+                 m3smin,m3smax,m3abs,m3sponentry,m3gcroot};
   IR = RECORD id : CARDINAL; name : TEXT END;
   IntrinArr = ARRAY M3Intrinsic OF IR;
 
@@ -520,7 +520,7 @@ TYPE
                     IR{0,"llvm.ceil"}, IR{0,"llvm.fabs"}, IR{0,"llvm.minnum"},
                     IR{0,"llvm.maxnum"}, IR{0,"llvm.fshl"}, IR{0,"llvm.fshr"},
                     IR{0,"llvm.smin"}, IR{0,"llvm.smax"}, IR{0,"llvm.abs"},
-                    IR{0,"llvm.sponentry"}};
+                    IR{0,"llvm.sponentry"}, IR{0,"llvm.gcroot"}};
 
 PROCEDURE SignExtend(a, b: INTEGER): INTEGER =
   BEGIN
@@ -699,7 +699,7 @@ VAR
   ExtendedType : LLVM.TypeRef;
   ExtendedSize : INTEGER;
 
-  llvmByval := TRUE; (* whether we do the copy ourselves or add the 'byval'
+  llvmByval := FALSE; (* whether we do the copy ourselves or add the 'byval'
                         attribute to functions so that llvm does the copy.
                         If we do it ourselves we sidestep the standard abi
                         and cannot be called from gcc compiled code *)
@@ -1956,27 +1956,78 @@ PROCEDURE VName(v : LvVar; debug := FALSE) : TEXT =
     RETURN name;
   END VName;
 
+(* Determine Garbage Collection Root status *)
+
+TYPE TraceKind = {None, Scalar, Composite};
+
+PROCEDURE ClassifyTrace(self: U; m3t: TypeUID): TraceKind =
+  VAR entry: REFANY; found: BOOLEAN; rec: RecordDebug; ptr : PointerDebug;
+  BEGIN
+    (* short circuit *)
+    IF m3t = M3IR.NO_UID THEN RETURN TraceKind.None; END;
+
+    found := self.debugTable.get(m3t, (*OUT*)entry);
+    IF NOT found THEN
+      <*ASSERT FALSE*>  (* forces a declaration-ordering violation to surface
+                            immediately at compile time rather than miscompile
+                            silently — see the open ordering question below *)
+    END;
+    IF ISTYPE(entry, PointerDebug) THEN
+      ptr := entry;
+      IF ptr.traced THEN
+        RETURN TraceKind.Scalar;
+      ELSE
+        RETURN TraceKind.None;
+      END;
+    ELSIF ISTYPE(entry, RecordDebug) THEN
+      rec := entry;
+      FOR i := 0 TO rec.numFields - 1 DO
+        IF ClassifyTrace(self, rec.fields[i].tUid) # TraceKind.None THEN
+          RETURN TraceKind.Composite;
+        END;
+      END;
+      RETURN TraceKind.None;
+    ELSE
+      RETURN TraceKind.None;  (* Array/Enum/Set/Packed/Proc/etc — deferred or N/A *)
+    END;
+  END ClassifyTrace;
+
 (* Generate llvm code to allocate v in the current basic block. *)
-PROCEDURE AllocVar(<*UNUSED*>self : U; v : LvVar) =
+PROCEDURE AllocVar(self : U; v : LvVar) =
+  CONST numParams = 2;
+  VAR
+    fn, callRes, metaVal : LLVM.ValueRef;
+    paramsArr : ValueArrType;
+    paramsRef : ValueRefType;
+    fnTy : LLVM.TypeRef;
+    tk : TraceKind;
   BEGIN
     v.lv := LLVM.LLVMBuildAlloca(builderIR, v.lvType, LT(VName(v)));
     LLVM.LLVMSetAlignment(v.lv,v.align);
 
-    (* calc the offset from the stack pointer for the unwinder *)
-    (* this calc is no longer used now that the landing_pad
-       generates the gcc_except_tables and since the front end is not
-       emitting the scope table we do not get an init_label and init_offset
-       This is arch dependant since dont know if the offset is positive
-       or negative from stack pointer and it cannot be optimised.
-    size := VAL(LLVM.LLVMStoreSizeOfType(targetData,v.lvType),INTEGER);
-    INC(size,7);
-    size := size - (size MOD 8);
-    INC(self.curProc.localOfs, size);
-    (*^ CHECK is this the best way to calc offset *)
-    (* this is negative for stacks growing down - what about other way *)
-    v.ofs := -self.curProc.localOfs;
-    *)
+    (* wasm32-specific codegen to ensure llvm does not optimize
+       this stack variable away; composites and pointers should
+       be forced onto the shadow stack *)
+    tk := ClassifyTrace(self, v.m3t); 
+    IF tk # TraceKind.None THEN
+      IF tk = TraceKind.Scalar THEN
+        metaVal := LLVM.LLVMConstNull(AdrTy);
+      ELSE (* Composite *)
+        (* Placeholder for Phase C, hence C0 ...*)
+        metaVal := LLVM.LLVMConstNull(AdrTy); 
+        (* metaVal := LLVM.LLVMConstInt(LLVM.LLVMInt32Type(), 16_C0C0C0C0L, FALSE); *)
+        (* metaVal := TypeDescriptorGlobal(self, v.m3t);   still open, per last message *)
+      END;
+      fn := IntrinsicFunc(M3Intrinsic.m3gcroot, numParams, AdrAdrTy, AdrTy);
+      paramsRef := NewValueArr(paramsArr,numParams);
+      paramsArr[0] := v.lv;
+      paramsArr[1] := metaVal;
+      fnTy := LLVM.LLVMGetFunctionType(fn);
+      callRes := LLVM.LLVMBuildCall2(builderIR, fnTy, fn, paramsRef,
+                                      numParams, LT(""));
+    END;
   END AllocVar;
+
 
 (* PRE: We are inside a procedure body, possibly deeply inside nested blocks. *)
 (* Allocate a temp or local in the entry BB of the procedure.

@@ -913,7 +913,7 @@ PROCEDURE CopyOpenArray (arrayType: Type.T;  refType: Type.T) =
     pack  := OpenArrayType.EltPack (arrayType);
     sizes := IR.Declare_temp (Target.Address.pack + Target.Integer.pack,
                               Target.Address.align, IR.Type.Struct,
-                              in_memory := TRUE);
+                              Type.GlobalUID(arrayType), in_memory := TRUE);
     proc  : Procedure.T;
   BEGIN
     oldDopePtr := IR.Pop (); 

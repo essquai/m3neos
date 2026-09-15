@@ -360,6 +360,7 @@ PROCEDURE InnerPrepLV (p: P;  traced: BOOLEAN; usesAssignProtocol: BOOLEAN) =
     info: Type.Info;
     field: Field.Info;
     resultVar: IR.Var;
+    m3t : IR.TypeUID;
   BEGIN
     INC (p.finalValUseCt);
     IF (p.finalVal # NIL) AND (p.finalValUseCt > 1)
@@ -378,8 +379,9 @@ PROCEDURE InnerPrepLV (p: P;  traced: BOOLEAN; usesAssignProtocol: BOOLEAN) =
       <* ASSERT NOT traced *>             (* CHECKME? *)
       p.finalVal := IR.Pop ();
     ELSE
+      m3t := Type.GlobalUID(p.type);
       resultVar := IR.Declare_temp (info.size, info.alignment,
-                             IR.Type.Struct, in_memory := TRUE);
+                             IR.Type.Struct, m3t, in_memory := TRUE);
     END;
 
     FOR i := 0 TO LAST (p.map^) DO

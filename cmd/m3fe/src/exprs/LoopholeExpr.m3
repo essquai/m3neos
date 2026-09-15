@@ -203,6 +203,7 @@ PROCEDURE Prep (p: P) =
     e  := p.expr;
     u  := Expr.TypeOf (e);
     t  := p.tipe;
+    m3t : IR.TypeUID;
     t1 : IR.Var;
     sz, t_align, u_align, z_align: INTEGER;
     u_info, t_info: Type.Info;
@@ -249,7 +250,8 @@ PROCEDURE Prep (p: P) =
     | Kind.V_to_S =>
         INC (p.tmp_cnt);
         Expr.Prep (e);
-        p.tmp := IR.Declare_temp (sz, z_align, IR.Type.Struct, in_memory := TRUE);
+        m3t := Type.GlobalUID(u);
+        p.tmp := IR.Declare_temp (sz, z_align, IR.Type.Struct, m3t, in_memory := TRUE);
         Expr.Compile (e);
         IR.Store (p.tmp, 0, sz, z_align, u_info.stk_type);
     | Kind.D_to_V =>
@@ -359,6 +361,7 @@ PROCEDURE PrepLV (p: P; traced: BOOLEAN) =
     e  := p.expr;
     u  := Expr.TypeOf (e);
     t  := p.tipe;
+    m3t : IR.TypeUID;
     sz, t_align, u_align, z_align: INTEGER;
     t1 : IR.Var;
     u_info, t_info: Type.Info;
@@ -407,7 +410,8 @@ PROCEDURE PrepLV (p: P; traced: BOOLEAN) =
     | Kind.V_to_S =>
         INC (p.tmp_cnt);
         Expr.Prep (e);
-        p.tmp := IR.Declare_temp (sz, z_align, IR.Type.Struct, in_memory := TRUE);
+        m3t := Type.GlobalUID(u);
+        p.tmp := IR.Declare_temp (sz, z_align, IR.Type.Struct, m3t, in_memory := TRUE);
         Expr.Compile (e);
         IR.Store (p.tmp, 0, sz, z_align, u_info.stk_type);
     END;
