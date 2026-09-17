@@ -504,7 +504,7 @@ PROCEDURE Declarer (p: T): BOOLEAN =
     name := Value.GlobalName (p, dots := FALSE);
     n_formals: INTEGER;
     cconv: IR.CallingConvention;
-    result_typeid := 0;
+    result_typeid := IR.NO_UID;
   BEGIN
 
     IF p.predefined AND p.body = NIL AND NOT p.assignable THEN

@@ -322,7 +322,8 @@ PROCEDURE ImportUnit (VAR s: State;  ui: UnitInfo) =
     ELSE
       ui.cg_proc := s.cg.import_procedure (M3ID.Add (ui.binder), 1,
                                           Target.IRType.Addr,
-                                          Target.DefaultCall);
+                                          Target.DefaultCall,
+                                          (*typeid*) 0);
       EVAL DeclareParam (s, "mode",  Target.Integer.cg_type);
     END;
   END ImportUnit;
@@ -445,33 +446,39 @@ PROCEDURE GenerateCGEntry (VAR s: State) =
 
   BEGIN
     nref_proc := s.cg.import_procedure (M3ID.Add ("nref_prologue"), 2,
-                                       Target.IRType.Void, Target.DefaultCall);
+                                       Target.IRType.Void, Target.DefaultCall,
+                                       (*typeid*) 0);
     EVAL DeclareParam (s, "argc", int_t);
     EVAL DeclareParam (s, "argv", addr_t);
 
     run_proc := s.cg.import_procedure (M3ID.Add ("RTLinker__InitRuntime"), 4,
-                                       Target.IRType.Void, Target.DefaultCall);
+                                       Target.IRType.Void, Target.DefaultCall,
+                                       (*typeid*) 0);
     EVAL DeclareParam (s, "argc", int_t);
     EVAL DeclareParam (s, "argv", addr_t);
     EVAL DeclareParam (s, "envp", addr_t);
     EVAL DeclareParam (s, "instance", addr_t);
 
     link_proc := s.cg.import_procedure (M3ID.Add ("RTLinker__AddUnit"), 1,
-                                       Target.IRType.Void, Target.DefaultCall);
+                                       Target.IRType.Void, Target.DefaultCall,
+                                       (*typeid*) 0);
     EVAL DeclareParam (s, "m", addr_t);
 
     IF NOT s.lazyInit THEN
       link_proc2 := s.cg.import_procedure (M3ID.Add ("RTLinker__AddUnitImports"),
                                            1, Target.IRType.Void,
-                                           Target.DefaultCall);
+                                           Target.DefaultCall,
+                                           (*typeid*) 0);
       EVAL DeclareParam (s, "m", addr_t);
     END;
 
     stat_proc := s.cg.import_procedure (M3ID.Add ("nref_memstat"), 0,
-                                       Target.IRType.Void, Target.DefaultCall);
+                                       Target.IRType.Void, Target.DefaultCall,
+                                       (*typeid*) 0);
 
     exit_proc := s.cg.import_procedure (M3ID.Add ("RTProcess__Exit"), 1,
-                                       Target.IRType.Void, Target.DefaultCall);
+                                       Target.IRType.Void, Target.DefaultCall,
+                                       (*typeid*) 0);
     EVAL DeclareParam (s, "n", int_t);
 
     IF (s.gui) THEN
@@ -481,11 +488,11 @@ PROCEDURE GenerateCGEntry (VAR s: State) =
       *)
       winapi := Target.FindConvention ("WINAPI");
       getenv := s.cg.import_procedure (M3ID.Add ("GetEnvironmentStringsA"), 0, 
-                                       addr_t, winapi);
+                                       addr_t, winapi, (*typeid*) 0);
 
       (* int WINAPI WinMain(HINSTANCE self, HINSTANCE prev, PSTR args, int mode) *)
       main := s.cg.declare_procedure (M3ID.Add ("WinMain"), (*n_params*) 4,
-                                 int_t, (*lev*) 0, winapi, TRUE, NIL);
+                                 int_t, (*lev*) 0, winapi, TRUE, NIL, (*typeid*) 0);
       self := DeclareParam (s, "self", addr_t);
       prev := DeclareParam (s, "prev", addr_t);
       argv := DeclareParam (s, "args", addr_t);
@@ -513,7 +520,8 @@ PROCEDURE GenerateCGEntry (VAR s: State) =
       *)
       main := s.cg.declare_procedure (M3ID.Add("main"), (*n_params*) 3,
                                       int_t, (*lev*) 0,
-                                      Target.DefaultCall, TRUE, NIL);
+                                      Target.DefaultCall, TRUE, NIL,
+                                      (*typeid*) 0);
       argc := DeclareParam (s, "argc", int_t);
       argv := DeclareParam (s, "argv", addr_t);
       envp := DeclareParam (s, "envp", addr_t);

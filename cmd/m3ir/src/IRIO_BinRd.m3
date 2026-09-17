@@ -913,10 +913,12 @@ PROCEDURE import_procedure (VAR s: State) =
       n_params := Scan_int (s);
       ret_type := Scan_type (s);
       calling  := Scan_callConv (s);
+      return_typeid := Scan_tipe(s);
       p        := Scan_int (s);
-      (* TODO return_typeid, return_typename but nobody uses it *)
+      (* Note: return_typeid restored, return_typename nobody uses *)
   BEGIN
-    AddProc (s, p, s.cg.import_procedure (name, n_params, ret_type, calling));
+    AddProc (s, p, s.cg.import_procedure (name, n_params, ret_type, calling,
+                                          return_typeid));
   END import_procedure;
 
 PROCEDURE declare_procedure (VAR s: State) =
@@ -927,11 +929,14 @@ PROCEDURE declare_procedure (VAR s: State) =
       calling  := Scan_callConv (s);
       export   := Scan_bool (s);
       parent   := Scan_proc (s);
+      return_typeid := Scan_tipe(s);
       p        := Scan_int (s);
-      (* TODO return_typeid, return_typename but it is not used downstream and can be omitted indefinitely *)
+      (* Note: return_typeid restored to IR;
+         return_typename remains unused downstream and so omitted *)
   BEGIN
     AddProc (s, p, s.cg.declare_procedure (name, n_params, ret_type,
-                                           level, calling, export, parent));
+                                           level, calling, export, parent,
+                                           return_typeid));
   END declare_procedure;
 
 PROCEDURE begin_procedure (VAR s: State) =

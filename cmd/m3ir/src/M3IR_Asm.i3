@@ -345,7 +345,7 @@ init_float (o: ByteOffset;  READONLY f: Target.Float);
 
 import_procedure (n: Name;  n_params: INTEGER;  return: Type;
                   cc: CallingConvention;
-                  return_typeid: TypeUID := 0;
+                  return_typeid: TypeUID;
                   return_typename := M3ID.NoID): Proc;
 (* declare and import the external procedure with name 'n' and 'n_params'
    formal parameters.  It must be a top-level (=0) procedure that returns
@@ -357,7 +357,7 @@ import_procedure (n: Name;  n_params: INTEGER;  return: Type;
 declare_procedure (n: Name;  n_params: INTEGER;  return: Type;
                    lev: INTEGER;  cc: CallingConvention;
                    exported: BOOLEAN;  parent: Proc;
-                   return_typeid: TypeUID := 0;
+                   return_typeid: TypeUID;
                    return_typename := M3ID.NoID): Proc;
 (* Declare a procedure with simple name 'n' within the current scope,
    with 'n_params' formal parameters, at static nesting level 'lev'.

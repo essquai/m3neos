@@ -921,7 +921,7 @@ PROCEDURE NewProc (u: U): Proc =
 
 PROCEDURE import_procedure (u: U;  n: Name;  n_params: INTEGER;
                             ret_type: Type;  cc: CallingConvention;
-                            <*UNUSED*>return_typeid: TypeUID;
+                            return_typeid: TypeUID;
                             <*UNUSED*>return_typename: Name): Proc =
   VAR p := NewProc (u);
   BEGIN
@@ -930,9 +930,10 @@ PROCEDURE import_procedure (u: U;  n: Name;  n_params: INTEGER;
     Int   (u, n_params);
     TName (u, ret_type);
     Int   (u, cc.m3cg_id);
+    Tipe  (u, return_typeid);
+    (* Note: return_typeid restored, typename remains unused  *)
     PName (u, p);
     NL    (u);
-    (* TODO return_typename but it not used *)
     RETURN p;
   END import_procedure;
 
@@ -940,7 +941,7 @@ PROCEDURE declare_procedure (u: U;  n: Name;  n_params: INTEGER;
                              return_type: Type;  lev: INTEGER;
                              cc: CallingConvention; exported: BOOLEAN;
                              parent: Proc;
-                             <*UNUSED*>return_typeid: TypeUID;
+                             return_typeid: TypeUID;
                              <*UNUSED*>return_typename: Name): Proc =
   VAR p := NewProc (u);
   BEGIN
@@ -952,9 +953,10 @@ PROCEDURE declare_procedure (u: U;  n: Name;  n_params: INTEGER;
     Int   (u, cc.m3cg_id);
     Bool  (u, exported);
     PName (u, parent);
+    Tipe  (u, return_typeid);
+    (* Note: return_typeid restored, typename remains unused  *)
     PName (u, p);
     NL    (u);
-    (* TODO return_typeid, return_typename but it is not used downstream and can be omitted indefinitely *)
     RETURN p;
   END declare_procedure;
 
