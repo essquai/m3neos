@@ -716,7 +716,7 @@ PROCEDURE GenScalarCopy (type: Type.T) =
       m3t : IR.TypeUID;
   BEGIN
     EVAL Type.CheckInfo (Type.StripPacked (type), typeInfo);
-    m3t := Type.GlobalUID(type);
+    m3t := Type.GlobalUID (type);
     tempVar := IR.Declare_temp
       (typeInfo.size, typeInfo.alignment, typeInfo.mem_type, m3t, in_memory := TRUE);
     IR.Store (tempVar, 0, typeInfo.size, typeInfo.alignment, typeInfo.mem_type);
@@ -952,7 +952,7 @@ PROCEDURE CompileNCopyStructWInWord
       Expr.Compile (actExpr);
       <* ASSERT actSize <= Target.Word.size *>
       IF Type.IsStructured (formVal.type) THEN
-        IR.Load_indirect (Target.Word.cg_type, 0, actSize);
+        IR.Load_indirect (Target.Word.cg_type, IR.NO_UID, 0, actSize);
       END;
     END;
     IR.Store_int (Target.Word.cg_type, actTempVar);
@@ -1146,7 +1146,7 @@ PROCEDURE RedepthArray (formType, actType: Type.T; eltsCopySize: CARDINAL) =
       eltsAlign := MAX (actTypeInfo.alignment, formTypeInfo.alignment);
       eltsTempVar
         := IR.Declare_temp
-             (eltsCopySize, eltsAlign, IR.Type.Struct, Type.GlobalUID(actType),
+             (eltsCopySize, eltsAlign, IR.Type.Struct, Type.GlobalUID (actType),
               in_memory := TRUE);
       IR.Load_addr_of (eltsTempVar, 0, eltsAlign);
       IR.Push (actVal);

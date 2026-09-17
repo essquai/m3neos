@@ -224,7 +224,7 @@ PROCEDURE Compiler (p: P) =
   VAR size := Target.Address.pack + OpenDepth (p) * Target.Integer.pack;
   BEGIN
     Type.Compile (p.EltType);
-    IR.Declare_open_array (Type.GlobalUID(p), Type.GlobalUID(p.EltType), size);
+    IR.Declare_open_array (Type.GlobalUID (p), Type.GlobalUID (p.EltType), size);
   END Compiler;
 
 (* Externally dispatched-to: *)

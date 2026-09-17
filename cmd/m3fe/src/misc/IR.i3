@@ -442,7 +442,7 @@ PROCEDURE Load_addr_of_temp (v: Var;  o: Offset;  addr_align: Alignment);
    is disabled, apparently replaced by Free_temps. *)
 
 PROCEDURE Load_indirect
-  (t: Type;  o: Offset;  s: Size; addr_align: Alignment := Target.Word8.align);
+  (t: Type;  m3t: TypeUID; o: Offset;  s: Size; addr_align: Alignment := Target.Word8.align);
 (* s0.t := Mem [s0.A + o : s] *)
 (* If t=A, addr_align applies to where final s0.t points, otherwise irrelevant. *)
 
@@ -452,7 +452,7 @@ PROCEDURE Load_int (t: IType;  v: Var;  o: Offset := 0);
 (* == Load (v, o, t.size, t.align, t) *)
 
 PROCEDURE Load_addr 
-  (v: Var;  o: Offset; addr_align: Alignment := Target.Word8.align);
+  (v: Var;  m3t: TypeUID; o: Offset; addr_align: Alignment);
 (* 'Load_as_addr' would have been a more meaningful name here. 
    It actually means load the *contents* of v and give it type Addr. *)
 (* == Load (v, o, Target.Address.size, Target.Address.align, addr_align, Type.Addr) *)

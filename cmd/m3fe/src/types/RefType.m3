@@ -350,7 +350,7 @@ PROCEDURE GenInitProc (p: P): IR.Proc =
     
 
     (* initialize the referent *)
-    IR.Load_addr (ref, 0, p.info.addr_align);
+    IR.Load_addr (ref, IR.NO_UID, 0, p.info.addr_align);
     Type.InitValue (p.target, TRUE);
 
     IR.Exit_proc (IR.Type.Void);

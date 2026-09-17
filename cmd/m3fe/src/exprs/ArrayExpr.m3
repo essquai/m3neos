@@ -2021,7 +2021,7 @@ PROCEDURE PrepRecurse
 		 constructor. *)
 	      IF ArrayType.EltsAreBitAddressed (constrLevelInfo.repType) THEN
 		IR.Load_indirect
-		  (Target.Integer.cg_type, 0, constrEltPack, eltAlign);
+		  (Target.Integer.cg_type, IR.NO_UID, 0, constrEltPack, eltAlign);
   (* CHECK: That this won't straddle word boundary. *)
 		IR.Store_indirect (Target.Integer.cg_type, 0, constrEltPack);
 	      ELSE

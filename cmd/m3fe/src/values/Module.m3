@@ -1119,8 +1119,8 @@ PROCEDURE LoadGlobalAddr (t: T;  offset: INTEGER;  is_const: BOOLEAN) =
     ELSE
       <*ASSERT NOT is_const *>
       ImportInterface (t);
-      IR.Load_addr
-        (curModule.globals[FALSE].seg, t.import_offs + M3RT.II_import,
+      IR.Load_addr 
+        (curModule.globals[FALSE].seg, IR.NO_UID, t.import_offs + M3RT.II_import,
          IR.Max_alignment);
       IR.Add_offset (offset);
     END;

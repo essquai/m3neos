@@ -333,20 +333,21 @@ PROCEDURE IsStructured (t: T): BOOLEAN =
 
 (*EXPORTED*)
 PROCEDURE LoadScalar (t: T) =
+  VAR m3t := GlobalUID(t);
   BEGIN
     t := Check (t);
     CASE t.info.class OF
     | Class.Integer, Class.Longint, Class.Real, Class.Longreal, Class.Extended,
       Class.Enum, Class.Object, Class.Opaque, Class.Procedure,
       Class.Ref, Class.Subrange =>
-        IR.Load_indirect (t.info.stk_type, 0, t.info.size, t.info.alignment);
+        IR.Load_indirect (t.info.stk_type, m3t, 0, t.info.size, t.info.alignment);
     | Class.Packed =>
         IF NOT IsStructured (t) THEN
-          IR.Load_indirect (t.info.stk_type, 0, t.info.size, t.info.alignment);
+          IR.Load_indirect (t.info.stk_type, m3t, 0, t.info.size, t.info.alignment);
         END;
     | Class.Set =>
         IF (t.info.size <= Target.Integer.size) THEN
-          IR.Load_indirect (t.info.stk_type, 0, t.info.size, t.info.alignment);
+          IR.Load_indirect (t.info.stk_type, NO_UID, 0, t.info.size, t.info.alignment);
         END;
     | Class.Error, Class.Named, Class.Array, Class.OpenArray, Class.Record =>
         (* skip -- either it's structured or it's an error *)
@@ -768,16 +769,16 @@ PROCEDURE LoadInfo (t: T;  offset: INTEGER;  addr: BOOLEAN := FALSE) =
   BEGIN
     IF (offset < 0) THEN
       <*ASSERT NOT addr*>
-      IR.Load_addr (v, c.offset, M3RT.TC_ALIGN);
+      IR.Load_addr (v, IR.NO_UID, c.offset, M3RT.TC_ALIGN);
     ELSIF (offset = M3RT.TC_typecode) THEN
       IR.Load_int (Target.Integer.cg_type, v, c.offset + Target.Address.pack);
     ELSE
-      IR.Load_addr (v, c.offset, M3RT.TC_ALIGN);
+      IR.Load_addr (v, IR.NO_UID, c.offset, M3RT.TC_ALIGN);
       IF (addr) THEN
-        IR.Load_indirect (IR.Type.Addr, offset, Target.Address.size);
+        IR.Load_indirect (IR.Type.Addr, IR.NO_UID, offset, Target.Address.size);
         IR.Boost_addr_alignment (Target.Address.align);
       ELSE
-        IR.Load_indirect (Target.Integer.cg_type, offset, Target.Integer.size);
+        IR.Load_indirect (Target.Integer.cg_type, IR.NO_UID, offset, Target.Integer.size);
       END;
     END;
   END LoadInfo;

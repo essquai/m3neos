@@ -7,6 +7,8 @@
 
 MODULE Constant;
 
+IMPORT RTIO;
+
 IMPORT M3, M3ID, IR, Value, ValueRep, Type, Expr, Scope, Error;
 IMPORT Token, AssignStmt, Scanner, UserProc, Target, M3Buf;
 IMPORT Decl, ProcType, Procedure, OpenArrayType, Module, ErrType;
@@ -217,7 +219,10 @@ PROCEDURE Load (t: T) =
       EVAL Expr.CheckUseFailure (t.valExpr);
       IF (t.imported) THEN
         Module.LoadGlobalAddr (Scope.ToUnit (t), t.offset, is_const := FALSE);
-        IR.Load_indirect (IR.Type.Addr, 0, Target.Address.size);
+
+RTIO.PutText("Constant.Load calign="); RTIO.PutInt(t.calign);
+RTIO.PutText(" size="); RTIO.PutInt(t.size); RTIO.Flush();
+        IR.Load_indirect (IR.Type.Addr, IR.NO_UID, 0, Target.Address.size, t.calign);
         IR.Boost_addr_alignment (t.calign);
       ELSE
         Module.LoadGlobalAddr (Scope.ToUnit (t), t.coffset, is_const := TRUE);

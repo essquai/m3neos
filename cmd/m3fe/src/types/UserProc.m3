@@ -98,7 +98,7 @@ PROCEDURE InnerPrep (ce: CallExpr.T) =
     large_result := ProcType.LargeResult (t_result);
     IF large_result AND NOT ce.doDirectAssign THEN
       tmp_result := IR.Declare_temp (result_info.size, align_result,
-                                     IR.Type.Struct, Type.GlobalUID(t_result),
+                                     IR.Type.Struct, Type.GlobalUID (t_result),
                                      in_memory := TRUE);
     END;
 

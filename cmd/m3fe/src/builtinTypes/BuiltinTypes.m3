@@ -64,7 +64,7 @@ PROCEDURE SetKind(t : Type.T; kind : Kind) =
       kindTable := NEW(IntIntTbl.Default).init(sizeHint := 20);
     END;
     KindInfo[kind] := NEW(REF Type.Info);
-    typeid := Type.GlobalUID(t);
+    typeid := Type.GlobalUID (t);
     EVAL Type.CheckInfo(t, KindInfo[kind]^);
     KindType[kind] := KindInfo[kind].mem_type;
     KindUID[kind]  := typeid;

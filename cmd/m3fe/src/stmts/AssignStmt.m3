@@ -449,7 +449,7 @@ PROCEDURE CopyStruct
        OR rhsAlign < Target.Byte
        OR bitSize MOD Target.Byte # 0
     THEN 
-      IR.Load_indirect (Target.Word.cg_type, 0 , bitSize); 
+      IR.Load_indirect (Target.Word.cg_type, IR.NO_UID, 0 , bitSize); 
       IR.Store_indirect (Target.Word.cg_type, 0 , bitSize); 
     ELSE
       IR.Copy (bitSize, overlap);

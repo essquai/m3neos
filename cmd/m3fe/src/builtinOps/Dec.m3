@@ -96,7 +96,7 @@ PROCEDURE Compile (ce: CallExpr.T) =
     IR.Push (lvalue);
 
     IR.Push (lvalue);
-    IR.Load_indirect (info.stk_type, 0, info.size, info.alignment);
+    IR.Load_indirect (info.stk_type, IR.NO_UID, 0, info.size, info.alignment);
     Expr.Compile (dec);
 
     IF (info.stk_type = IR.Type.Addr)

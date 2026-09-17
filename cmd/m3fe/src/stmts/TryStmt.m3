@@ -367,7 +367,7 @@ PROCEDURE Compile1 (p: P): Stmt.Outcomes =
       oc := oc + Stmt.Compile (p.elseBody);
     ELSIF another THEN
       (* we didn't eat this exception => mark and invoke the next handler *)
-      IR.Load_addr (info, 0, Target.Address.align);
+      IR.Load_addr (info, IR.NO_UID, 0, Target.Address.align);
       IR.Store_addr (next_info);
       IR.Jump (handler_body);
     END;
@@ -388,6 +388,7 @@ PROCEDURE CompileHandler1 (h: Handler;  info: IR.Var;
     top: IR.Label;
     need_top := FALSE;
     t_info: Type.Info;
+    m3t: IR.TypeUID;
   BEGIN
     top := IR.Next_label (2);
 
@@ -398,11 +399,11 @@ PROCEDURE CompileHandler1 (h: Handler;  info: IR.Var;
       e := h.tags;
       <*ASSERT e # NIL*>
       WHILE (e # NIL) DO
-        IR.Load_addr (info, M3RT.EA_exception, Target.Address.align);
+        IR.Load_addr (info, IR.NO_UID, M3RT.EA_exception, Target.Address.align);
         IR.Boost_addr_alignment (Target.Address.align);
-        IR.Load_indirect (IR.Type.Addr, 0, Target.Address.size);
+        IR.Load_indirect (IR.Type.Addr, IR.NO_UID, 0, Target.Address.size);
         IR.Boost_addr_alignment (Target.Integer.align);
-        IR.Load_indirect (Target.Integer.cg_type, 0, Target.Integer.size);
+        IR.Load_indirect (Target.Integer.cg_type, IR.NO_UID, 0, Target.Integer.size);
         IR.Load_intt (Exceptionz.UID (e.obj));
         e := e.next;
         IF (e # NIL) THEN
@@ -423,15 +424,16 @@ PROCEDURE CompileHandler1 (h: Handler;  info: IR.Var;
         Variable.LoadLValue (h.var);
         EVAL Type.CheckInfo (h.type, t_info);
         IF Exceptionz.ArgByReference (h.type) THEN
-          IR.Load_addr (info, M3RT.EA_exception, Target.Address.align);
+          m3t := Type.GlobalUID (h.type);
+          IR.Load_addr (info, IR.NO_UID, M3RT.EA_exception, Target.Address.align);
           IR.Boost_addr_alignment (Target.Address.align);
-          IR.Load_indirect (IR.Type.Addr, M3RT.EA_arg, Target.Address.size);
+          IR.Load_indirect (IR.Type.Addr, m3t, M3RT.EA_arg, Target.Address.size);
           IR.Boost_addr_alignment (t_info.alignment);
           IR.Copy (t_info.size, overlap := FALSE);
         ELSE
-          IR.Load_addr (info, M3RT.EA_exception, Target.Address.align);
+          IR.Load_addr (info, IR.NO_UID, M3RT.EA_exception, Target.Address.align);
           IR.Boost_addr_alignment (Target.Address.align);
-          IR.Load_indirect (IR.Type.Addr, M3RT.EA_arg, Target.Address.size);
+          IR.Load_indirect (IR.Type.Addr, IR.NO_UID, M3RT.EA_arg, Target.Address.size);
           IR.Loophole (IR.Type.Addr, t_info.stk_type);
           IR.Store_indirect (t_info.stk_type, 0, t_info.size);
         END;
@@ -544,10 +546,10 @@ PROCEDURE CompileHandler2 (h: Handler;  frame: IR.Var;
       e := h.tags;
       <*ASSERT e # NIL*>
       WHILE (e # NIL) DO
-        IR.Load_addr
-          (frame, M3RT.EF1_info + M3RT.EA_exception, Target.Address.align);
+        IR.Load_addr 
+          (frame, IR.NO_UID, M3RT.EF1_info + M3RT.EA_exception, Target.Address.align);
         IR.Boost_addr_alignment (Target.Integer.align);
-        IR.Load_indirect (Target.Integer.cg_type, 0, Target.Integer.size);
+        IR.Load_indirect (Target.Integer.cg_type, IR.NO_UID, 0, Target.Integer.size);
         IR.Load_intt (Exceptionz.UID (e.obj));  (** Value.Load (e.obj);  **)
         e := e.next;
         IF (e # NIL)
@@ -567,13 +569,13 @@ PROCEDURE CompileHandler2 (h: Handler;  frame: IR.Var;
         Variable.LoadLValue (h.var);
         EVAL Type.CheckInfo (h.type, t_info);
         IF Exceptionz.ArgByReference (h.type) THEN
-          IR.Load_addr
-            (frame, M3RT.EF1_info + M3RT.EA_arg, Target.Address.align);
+          IR.Load_addr 
+            (frame, IR.NO_UID, M3RT.EF1_info + M3RT.EA_arg, Target.Address.align);
           IR.Boost_addr_alignment (t_info.alignment);
           IR.Copy (t_info.size, overlap := FALSE);
         ELSE
-          IR.Load_addr
-            (frame, M3RT.EF1_info + M3RT.EA_arg, Target.Address.align);
+          IR.Load_addr 
+            (frame, IR.NO_UID, M3RT.EF1_info + M3RT.EA_arg, Target.Address.align);
           IR.Loophole (IR.Type.Addr, t_info.stk_type);
           IR.Store_indirect (t_info.stk_type, 0, t_info.size);
         END;
@@ -654,7 +656,7 @@ PROCEDURE LoadInfoPtr () =
       IF z.direct THEN
         IR.Load_addr_of (z.info, z.offset, Target.Address.align);
       ELSE
-        IR.Load_addr (z.info, z.offset, Target.Address.align);
+        IR.Load_addr (z.info, IR.NO_UID, z.offset, Target.Address.align);
       END;
     END;
   END LoadInfoPtr;

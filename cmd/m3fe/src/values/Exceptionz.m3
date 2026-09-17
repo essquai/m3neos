@@ -160,7 +160,7 @@ PROCEDURE EmitRaise (v: Value.T;  arg: Expr.T) =
       LoadSelf (t);
       IR.Add_offset (M3RT.ED_SIZE);
       IR.Boost_addr_alignment (Target.Address.align);
-      IR.Load_indirect (IR.Type.Addr, 0, Target.Address.size, IR.ProcAlign ());
+      IR.Load_indirect (IR.Type.Addr, IR.NO_UID, 0, Target.Address.size, IR.ProcAlign ());
       IR.Gen_Call_indirect (IR.Type.Void, Target.DefaultCall);
       EVAL Marker.EmitExceptionTest (Procedure.Signature (p), need_value := FALSE);
       IR.Free (tmp);
@@ -171,7 +171,7 @@ PROCEDURE LoadSelf (t: T) =
   BEGIN
     IF (t.imported) THEN
       Module.LoadGlobalAddr (Scope.ToUnit (t), t.offset, is_const := FALSE);
-      IR.Load_indirect (IR.Type.Addr, 0, Target.Address.size);
+      IR.Load_indirect (IR.Type.Addr, IR.NO_UID, 0, Target.Address.size);
       IR.Boost_addr_alignment (Target.Address.align);
     ELSE
       Module.LoadGlobalAddr (Scope.ToUnit (t), t.coffset, is_const := TRUE);
@@ -373,7 +373,7 @@ PROCEDURE EmitBody (x: Raiser) =
     (* ptr^ := arg^ *)
     IR.Push (ptr);
     IR.Boost_addr_alignment (align);
-    IR.Load_addr (x.arg, 0, align);
+    IR.Load_addr (x.arg, IR.NO_UID, 0, align);
     IR.Copy (info.size, overlap := FALSE);
 
     (* RAISE (e, ptr) *)
@@ -384,14 +384,14 @@ PROCEDURE EmitBody (x: Raiser) =
       IR.Pop_param (IR.Type.Addr);
       IR.Push (ptr);
       IR.Pop_param (IR.Type.Addr);
-      IR.Load_addr (x.module, 0, Target.Address.align);
+      IR.Load_addr (x.module, IR.NO_UID, 0, Target.Address.align);
       IR.Pop_param (IR.Type.Addr);
       IR.Load_int (Target.Integer.cg_type, x.line);
       IR.Pop_param (Target.Integer.cg_type);
     ELSE
       IR.Load_int (Target.Integer.cg_type, x.line);
       IR.Pop_param (Target.Integer.cg_type);
-      IR.Load_addr (x.module, 0, Target.Address.align);
+      IR.Load_addr (x.module, IR.NO_UID, 0, Target.Address.align);
       IR.Pop_param (IR.Type.Addr);
       IR.Push (ptr);
       IR.Pop_param (IR.Type.Addr);

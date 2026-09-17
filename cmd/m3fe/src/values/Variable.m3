@@ -410,7 +410,7 @@ PROCEDURE Load (t: T) =
         Module.LoadGlobalAddr (Scope.ToUnit (t), t.offset, is_const := FALSE);
         IR.Boost_addr_alignment (t.cg_align);
       ELSIF (t.indirect) THEN
-        IR.Load_addr (t.cg_var, t.offset, t.cg_align);
+        IR.Load_addr (t.cg_var, Type.GlobalUID (t.type), t.offset, t.cg_align);
         (* ^Misleading name.  Actually load value and label as an address. *)
       ELSE
         IR.Load_addr_of (t.cg_var, t.offset, IR.GCD(t.cg_align, t.offset));
@@ -424,16 +424,16 @@ PROCEDURE Load (t: T) =
         MakeOnce(t, FALSE);
         Module.LoadGlobalAddr (Scope.ToUnit (t), t.offset, is_const := FALSE);
         IF (t.indirect) THEN
-          IR.Load_indirect (IR.Type.Addr, 0, Target.Address.size);
+          IR.Load_indirect (IR.Type.Addr, IR.NO_UID, 0, Target.Address.size);
         END;
         IR.Boost_addr_alignment (type_info.alignment);
-        IR.Load_indirect (t.stk_type, 0, t.size, type_info.addr_align);
+        IR.Load_indirect (t.stk_type, IR.NO_UID, 0, t.size, type_info.addr_align);
       ELSIF (t.indirect) THEN
-        IR.Load_addr (t.cg_var, t.offset, type_info.alignment);
+        IR.Load_addr (t.cg_var, Type.GlobalUID (t.type), t.offset, type_info.alignment);
         (* ^Misleading name.  Actually load value and label as an address. *)
      (* IR.Load_indirect (t.stk_type, 0, t.size, type_info.addr_align); *)
         IR.Load_indirect
-          (type_info.stk_type, 0, type_info.size, type_info.addr_align);
+          (type_info.stk_type, Type.GlobalUID (t.type), 0, type_info.size, type_info.addr_align);
       ELSE
         IR.Load
           (t.cg_var, t.offset, t.size, IR.GCD (t.cg_align, t.offset),
@@ -456,10 +456,10 @@ PROCEDURE LoadLValue (t: T) =
       MakeOnce(t, FALSE);
       Module.LoadGlobalAddr (Scope.ToUnit (t), t.offset, is_const := FALSE);
       IF (t.indirect) THEN
-        IR.Load_indirect (IR.Type.Addr, 0, Target.Address.size);
+        IR.Load_indirect (IR.Type.Addr, IR.NO_UID, 0, Target.Address.size);
       END;
     ELSIF (t.indirect) THEN
-      IR.Load_addr (t.cg_var, t.offset, type_info.alignment);
+      IR.Load_addr (t.cg_var, Type.GlobalUID (t.type), t.offset, type_info.alignment);
       (* ^Misleading name.  Actually load value and label as an address. *)
     ELSE
       IR.Load_addr_of
@@ -539,7 +539,7 @@ PROCEDURE MakeOnce(t: T; inMain: BOOLEAN) =
 
     IF t.once_var # NIL OR NOT t.global THEN RETURN; END;
     n    := M3ID.Add(t.qualName);
-    m3t  := Type.GlobalUID(t.type);
+    m3t  := Type.GlobalUID (t.type);
     IF inMain THEN
       t.once_var := IR.Declare_global (n := n,  s := t.size,  a := t.align,
                           t := t.mem_type, m3t := m3t,  exported := TRUE,
@@ -913,7 +913,7 @@ PROCEDURE CopyOpenArray (arrayType: Type.T;  refType: Type.T) =
     pack  := OpenArrayType.EltPack (arrayType);
     sizes := IR.Declare_temp (Target.Address.pack + Target.Integer.pack,
                               Target.Address.align, IR.Type.Struct,
-                              Type.GlobalUID(arrayType), in_memory := TRUE);
+                              Type.GlobalUID (arrayType), in_memory := TRUE);
     proc  : Procedure.T;
   BEGIN
     oldDopePtr := IR.Pop (); 

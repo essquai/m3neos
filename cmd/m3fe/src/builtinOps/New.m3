@@ -287,7 +287,7 @@ PROCEDURE GenOpenArray (t: Type.T;  traced: BOOLEAN;
   VAR
     n := LAST (ce.args^); (* number of open dimensions *)
     sizesAlign := MAX(Target.Address.align, Target.Integer.align);
-    m3t := Type.GlobalUID(t);
+    m3t := Type.GlobalUID (t);
     sizes := IR.Declare_temp (Target.Address.pack + (n+1)*Target.Integer.pack,
 (*TODO:                       ^RefType.InitTypecell and possibly other places
                                handle possible alignment padding between the

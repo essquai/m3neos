@@ -379,7 +379,7 @@ PROCEDURE InnerPrepLV (p: P;  traced: BOOLEAN; usesAssignProtocol: BOOLEAN) =
       <* ASSERT NOT traced *>             (* CHECKME? *)
       p.finalVal := IR.Pop ();
     ELSE
-      m3t := Type.GlobalUID(p.type);
+      m3t := Type.GlobalUID (p.type);
       resultVar := IR.Declare_temp (info.size, info.alignment,
                              IR.Type.Struct, m3t, in_memory := TRUE);
     END;

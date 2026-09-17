@@ -108,7 +108,7 @@ PROCEDURE Prep (p: P) =
       EVAL Type.CheckInfo (p.type, info);
       size := info.size;
       IF (size > Target.Integer.size) THEN
-        m3t := Type.GlobalUID(p.type);
+        m3t := Type.GlobalUID (p.type);
         p.tmp := IR.Declare_temp (size, Target.Integer.align,
                                   IR.Type.Struct, m3t,
                                   in_memory := TRUE);

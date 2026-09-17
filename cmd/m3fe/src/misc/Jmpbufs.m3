@@ -141,7 +141,7 @@ PROCEDURE CompileProcAllocateJmpbufs (p: Proc) =
 
     IF try_count > 1 THEN
       FOR i := 1 TO try_count - 1 DO
-        IR.Load_addr(p.jmpbufs[i - 1], 0, Target.Address.align);
+        IR.Load_addr (p.jmpbufs[i - 1], IR.NO_UID, 0, Target.Address.align);
         IR.Loophole(Target.Address.cg_type, Target.Word.cg_type);
         IR.Load_int(Target.Word.cg_type, size);
         IR.Add(Target.Word.cg_type);

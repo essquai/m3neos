@@ -107,12 +107,12 @@ PROCEDURE Prep (p: P) =
       cg_type := IRType [p.class];
 
       Expr.Compile (p.a);
-      m3t := Type.GlobalUID(Type.Base (Expr.TypeOf (p.a)));
+      m3t := Type.GlobalUID (Type.Base (Expr.TypeOf (p.a)));
       p.tmp1 := IR.Declare_temp (sz, align, cg_type, m3t, in_memory := FALSE);
       IR.Store (p.tmp1, 0, sz, align, cg_type);
 
       Expr.Compile (p.b);
-      m3t := Type.GlobalUID(Type.Base (Expr.TypeOf (p.b)));
+      m3t := Type.GlobalUID (Type.Base (Expr.TypeOf (p.b)));
       p.tmp2 := IR.Declare_temp (sz, align, cg_type, m3t, in_memory := FALSE);
       IR.Store (p.tmp2, 0, sz, align, cg_type);
     END;

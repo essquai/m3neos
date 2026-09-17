@@ -212,7 +212,7 @@ PROCEDURE PopFrame (frame: IR.Var) =
   BEGIN
     pop := RunTyme.LookUpProc (RunTyme.Hook.PopEFrame);
     Procedure.StartCall (pop);
-    IR.Load_addr (frame, M3RT.EF_next, Target.Address.align);
+    IR.Load_addr (frame, IR.NO_UID, M3RT.EF_next, Target.Address.align);
     IR.Pop_param (IR.Type.Addr);
     Procedure.EmitCall (pop);
   END PopFrame;
@@ -227,13 +227,13 @@ PROCEDURE SetLock (acquire: BOOLEAN;  var: IR.Var;  offset: INTEGER) =
 
     IR.Start_call_indirect (IR.Type.Void, Target.DefaultCall);
 
-    IR.Load_addr (var, offset, Target.Address.align); (* mutex object *)
+    IR.Load_addr (var, IR.NO_UID, offset, Target.Address.align); (* mutex object *)
     IR.Pop_param (IR.Type.Addr);
 
-    IR.Load_addr (var, offset, Target.Address.align); (* mutex object *)
-    IR.Load_indirect (IR.Type.Addr, 0, Target.Address.size);  (* method list *)
+    IR.Load_addr (var, IR.NO_UID, offset, Target.Address.align); (* mutex object *)
+    IR.Load_indirect (IR.Type.Addr, IR.NO_UID, 0, Target.Address.size);  (* method list *)
     IR.Boost_addr_alignment (Target.Address.align);
-    IR.Load_indirect (IR.Type.Addr, method_offset, Target.Address.size); (* proc *)
+    IR.Load_indirect (IR.Type.Addr, IR.NO_UID, method_offset, Target.Address.size); (* proc *)
     IR.Boost_addr_alignment (Target.Address.align);
 
     IR.Gen_Call_indirect (IR.Type.Void, Target.DefaultCall);    
@@ -247,9 +247,9 @@ PROCEDURE CallFinallyHandler (info: IR.Var;
       IR.Call_direct (handler, IR.Type.Void);
     ELSE
       IR.Start_call_indirect (IR.Type.Void, Target.DefaultCall);
-      IR.Load_addr (info, M3RT.EF2_frame, Target.Address.align);
+      IR.Load_addr (info, IR.NO_UID, M3RT.EF2_frame, Target.Address.align);
       IR.Pop_static_link ();
-      IR.Load_addr (info, M3RT.EF2_handler, Target.Address.align);
+      IR.Load_addr (info, IR.NO_UID, M3RT.EF2_handler, Target.Address.align);
       IR.Gen_Call_indirect (IR.Type.Void, Target.DefaultCall);
     END;
   END CallFinallyHandler;
@@ -259,7 +259,7 @@ PROCEDURE CaptureState (frame: IR.Var;  jmpbuf: IR.Var;  handler: IR.Label) =
   BEGIN
 
     IF Target.Alloca_jmpbuf THEN
-      IR.Load_addr (jmpbuf, 0, jmpbufAlign);
+      IR.Load_addr (jmpbuf, IR.NO_UID, 0, jmpbufAlign);
       IR.Store_addr (frame, M3RT.EF1_jmpbuf);
     END;
 
@@ -269,7 +269,7 @@ PROCEDURE CaptureState (frame: IR.Var;  jmpbuf: IR.Var;  handler: IR.Label) =
       (* Jmpbuf is allocated with alloca and m3front/m3middle
        * do not know its size.
        *)
-      IR.Load_addr (jmpbuf, 0, jmpbufAlign);
+      IR.Load_addr (jmpbuf, IR.NO_UID, 0, jmpbufAlign);
     ELSE
       (* Inactive path where m3front/m3middle must know size of
        * jmpbuf for each target: faster but much more work to port.
@@ -471,7 +471,7 @@ PROCEDURE AllocReturnTemp () =
           z.tmp_result :=
               IR.Declare_local (M3ID.NoID, ret_info.size,
                                 ret_info.alignment, IR.Type.Struct,
-                                Type.GlobalUID(z.type), in_memory := TRUE,
+                                Type.GlobalUID (z.type), in_memory := TRUE,
                                 up_level := FALSE, f := IR.Maybe);
         END;
       END;

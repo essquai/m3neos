@@ -272,14 +272,14 @@ PROCEDURE Compile (p: P): Stmt.Outcomes =
     addr_align := Expr.Alignment (p.expr);
     Procedure.StartCall (proc);
     IF Target.DefaultCall.args_left_to_right THEN
-      IR.Load_addr (ref, 0, addr_align);
+      IR.Load_addr (ref, Type.GlobalUID (ref_type), 0, addr_align);
       IR.Pop_param (IR.Type.Addr);
       IR.Load_addr_of (Module.GlobalData (FALSE), type_tbl, IR.Max_alignment);
       IR.Pop_param (IR.Type.Addr);
     ELSE
       IR.Load_addr_of (Module.GlobalData (FALSE), type_tbl, IR.Max_alignment);
       IR.Pop_param (IR.Type.Addr);
-      IR.Load_addr (ref, 0, addr_align);
+      IR.Load_addr (ref, Type.GlobalUID (ref_type), 0, addr_align);
       IR.Pop_param (IR.Type.Addr);
     END;
     Procedure.EmitCall (proc);
@@ -341,7 +341,7 @@ PROCEDURE CompileCaseBody (p: P;  c: Case;  ref: IR.Var;
         Scope.Enter (c.scope);
         Scope.InitValues (c.scope);
         Variable.LoadLValue (c.var);
-        IR.Load_addr (ref, 0, Target.Address.align);
+        IR.Load_addr (ref, IR.NO_UID, 0, Target.Address.align);
         IR.Store_indirect (IR.Type.Addr, 0, Target.Address.size);
         Variable.ScheduleTrace (c.var);
         oc := Stmt.Compile (c.stmt);

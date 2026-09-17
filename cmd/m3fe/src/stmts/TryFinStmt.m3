@@ -162,13 +162,13 @@ PROCEDURE Compile1 (p: P): Stmt.Outcomes =
 
     IF (Outcome.FallThrough IN xc) THEN
       (* exceptional outcome? *)
-      IR.Load_addr (info, M3RT.EA_exception, Target.Address.align);
+      IR.Load_addr (info, IR.NO_UID, M3RT.EA_exception, Target.Address.align);
       IR.Load_nil ();
       IR.If_compare (IR.Type.Addr, IR.Cmp.EQ, lab+3, IR.Always);
 
       IF (exitSeen) THEN
         xx := IR.Next_label ();
-        IR.Load_addr (info, M3RT.EA_exception, Target.Address.align);
+        IR.Load_addr (info, IR.NO_UID, M3RT.EA_exception, Target.Address.align);
         IR.Loophole (IR.Type.Addr, Target.Integer.cg_type );
 
         IR.Load_intt (Marker.Exit_exception);
@@ -179,7 +179,7 @@ PROCEDURE Compile1 (p: P): Stmt.Outcomes =
 
       IF (returnSeen) THEN
         xx := IR.Next_label ();
-        IR.Load_addr (info, M3RT.EA_exception, Target.Address.align);
+        IR.Load_addr (info, IR.NO_UID, M3RT.EA_exception, Target.Address.align);
         IR.Loophole (IR.Type.Addr, Target.Integer.cg_type );
 
         IR.Load_intt (Marker.Return_exception);
@@ -191,7 +191,7 @@ PROCEDURE Compile1 (p: P): Stmt.Outcomes =
       (* resume the exception *)
       proc := RunTyme.LookUpProc (RunTyme.Hook.ResumeRaiseEx);
       Procedure.StartCall (proc);
-      IR.Load_addr (info, 0, Target.Address.align);
+      IR.Load_addr (info, IR.NO_UID, 0, Target.Address.align);
       IR.Pop_param (IR.Type.Addr);
       Procedure.EmitCall (proc);
       IR.Set_label (lab+3, barrier := TRUE);
@@ -349,8 +349,8 @@ PROCEDURE Compile3 (p: P): Stmt.Outcomes =
       (* generate the bizzare end-tests *)
 
       (* exceptional outcome? *)
-      IR.Load_addr
-        (frame, M3RT.EF1_info + M3RT.EA_exception, Target.Address.align);
+      IR.Load_addr 
+        (frame, IR.NO_UID, M3RT.EF1_info + M3RT.EA_exception, Target.Address.align);
       IR.Load_nil ();
       IR.If_compare (IR.Type.Addr, IR.Cmp.EQ, lab+2, IR.Always);
 

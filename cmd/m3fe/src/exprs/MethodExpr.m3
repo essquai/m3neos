@@ -95,7 +95,7 @@ PROCEDURE Compile (p: P; StaticOnly: BOOLEAN) =
       IR.Index_bytes (Target.Byte);
     END;
     IR.Boost_addr_alignment (Target.Address.align);
-    IR.Load_indirect (IR.Type.Addr, method.offset, Target.Address.size);
+    IR.Load_indirect (IR.Type.Addr, IR.NO_UID, method.offset, Target.Address.size);
     IR.Boost_addr_alignment (IR.ProcAlign ());
   END Compile;
 

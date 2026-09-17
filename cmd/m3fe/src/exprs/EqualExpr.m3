@@ -207,6 +207,7 @@ PROCEDURE Compile (p: P; StaticOnly: BOOLEAN) =
 PROCEDURE CompileSolidUnrolled (p: P) =
   VAR
     info       : Type.Info;
+    m3t        : IR.TypeUID;
     xa, xb     : IR.Val;
     cmp_type   : IR.Type;
     chunk_size : INTEGER;
@@ -223,9 +224,11 @@ PROCEDURE CompileSolidUnrolled (p: P) =
 
     FOR i := 0 TO n_chunks - 1 DO
       IR.Push (xa);
-      IR.Load_indirect (cmp_type, i * chunk_size, chunk_size, info.alignment);
+      m3t := Type.GlobalUID (p.a.type);
+      IR.Load_indirect (cmp_type, IR.NO_UID, i * chunk_size, chunk_size, info.alignment);
       IR.Push (xb);
-      IR.Load_indirect (cmp_type, i * chunk_size, chunk_size, info.alignment);
+      m3t := Type.GlobalUID (p.b.type);
+      IR.Load_indirect (cmp_type, IR.NO_UID, i * chunk_size, chunk_size, info.alignment);
       IR.Compare (Target.Word.cg_type, p.op);
       IF (i > 0) THEN
         IF (p.op = IR.Cmp.EQ)
@@ -467,12 +470,12 @@ PROCEDURE CompileTest (x1, x2 : IR.Val;
       IR.Push (x1);
       IF (u1_info.size <= Target.Integer.size) THEN
         IR.Load_indirect
-          (Target.Word.cg_type, 0, Target.Integer.size, u1_info.alignment);
+          (Target.Word.cg_type, IR.NO_UID, 0, Target.Integer.size, u1_info.alignment);
       END;
       IR.Push (x2);
       IF (u1_info.size <= Target.Integer.size) THEN
         IR.Load_indirect
-          (Target.Word.cg_type, 0, Target.Integer.size, u2_info.alignment);
+          (Target.Word.cg_type, IR.NO_UID, 0, Target.Integer.size, u2_info.alignment);
       END;
       IR.Set_compare (u1_info.size, IR.Cmp.EQ);
       IR.If_false (false, freq);
@@ -481,9 +484,9 @@ PROCEDURE CompileTest (x1, x2 : IR.Val;
        OR (u2_info.class = Type.Class.Procedure) THEN
       (* we're already inside some variable => no frame pointers *)
       IR.Push (x1);
-      IR.Load_indirect (IR.Type.Addr, 0, Target.Address.size, IR.ProcAlign ());
+      IR.Load_indirect (IR.Type.Addr, IR.NO_UID, 0, Target.Address.size, IR.ProcAlign ());
       IR.Push (x2);
-      IR.Load_indirect (IR.Type.Addr, 0, Target.Address.size, IR.ProcAlign ());
+      IR.Load_indirect (IR.Type.Addr, IR.NO_UID, 0, Target.Address.size, IR.ProcAlign ());
       IR.If_compare (IR.Type.Addr, IR.Cmp.NE, false, freq);
 
     ELSE (* simple scalars *)
@@ -491,10 +494,10 @@ PROCEDURE CompileTest (x1, x2 : IR.Val;
       EVAL Type.CheckInfo (t2, u2_info);
       IR.Push (x1);
       IR.Boost_addr_alignment (Target.Address.align);
-      IR.Load_indirect (u1_info.stk_type, 0, u1_info.size, u1_info.alignment);
+      IR.Load_indirect (u1_info.stk_type, IR.NO_UID, 0, u1_info.size, u1_info.alignment);
       IR.Push (x2);
       IR.Boost_addr_alignment (Target.Address.align);
-      IR.Load_indirect (u2_info.stk_type, 0, u2_info.size, u2_info.alignment);
+      IR.Load_indirect (u2_info.stk_type, IR.NO_UID, 0, u2_info.size, u2_info.alignment);
       IR.If_compare (u1_info.stk_type, IR.Cmp.NE, false, freq);
     END;
   END CompileTest;
@@ -740,9 +743,9 @@ PROCEDURE CompileSolid (p1, p2: IR.Val;  t1, t2: Type.T;
       (* unroll the loop of comparisons *)
       FOR i := 0 TO n_chunks - 1 DO
         IR.Push (p1);
-        IR.Load_indirect (cmp_type, i * chunk_size, chunk_size, chunk_align);
+        IR.Load_indirect (cmp_type, IR.NO_UID, i * chunk_size, chunk_size, chunk_align);
         IR.Push (p2);
-        IR.Load_indirect (cmp_type, i * chunk_size, chunk_size, chunk_align);
+        IR.Load_indirect (cmp_type, IR.NO_UID, i * chunk_size, chunk_size, chunk_align);
         IR.If_compare (Target.Word.cg_type, IR.Cmp.NE, false, freq);
       END;
 
@@ -758,12 +761,12 @@ PROCEDURE CompileSolid (p1, p2: IR.Val;  t1, t2: Type.T;
       IR.Push (p1);
       IR.Push (cnt);
       IR.Index_bytes (chunk_size);
-      IR.Load_indirect (cmp_type, 0, chunk_size, chunk_align);
+      IR.Load_indirect (cmp_type, IR.NO_UID, 0, chunk_size, chunk_align);
 
       IR.Push (p2);
       IR.Push (cnt);
       IR.Index_bytes (chunk_size);
-      IR.Load_indirect (cmp_type, 0, chunk_size, chunk_align);
+      IR.Load_indirect (cmp_type, IR.NO_UID, 0, chunk_size, chunk_align);
 
       (* do the comparison *)
       IR.If_compare (Target.Word.cg_type, IR.Cmp.NE, false, freq);

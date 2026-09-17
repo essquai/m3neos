@@ -819,7 +819,7 @@ PROCEDURE GenInitProc (p: P): IR.Proc =
     IR.Begin_procedure (proc);
 
     (* allocate and initialize a pointer to the data fields *)
-    IR.Load_addr (obj, 0, p.fieldAlign);
+    IR.Load_addr (obj, IR.NO_UID, 0, p.fieldAlign);
     IF (p.fieldOffset >= 0) THEN
       (* the field offsets are constant *)
       IR.Add_offset (p.fieldOffset);
@@ -903,8 +903,8 @@ PROCEDURE GenLinkProc (p: P;  defaults: INTEGER): IR.Proc =
     IR.Begin_procedure (proc);
 
     (* grab the default methodlist pointer *)
-    IR.Load_addr (defn, 0 , Target.Address.align);
-    IR.Load_indirect (IR.Type.Addr, M3RT.OTC_defaultMethods, Target.Address.size);
+    IR.Load_addr (defn, IR.NO_UID, 0 , Target.Address.align);
+    IR.Load_indirect (IR.Type.Addr, IR.NO_UID, M3RT.OTC_defaultMethods, Target.Address.size);
     ptr := IR.Pop ();
 
     v := Scope.ToList (p.methods);
