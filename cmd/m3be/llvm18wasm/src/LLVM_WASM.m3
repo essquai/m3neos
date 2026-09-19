@@ -1961,17 +1961,18 @@ PROCEDURE VName(v : LvVar; debug := FALSE) : TEXT =
 TYPE TraceKind = {None, Scalar, Composite};
 
 PROCEDURE ClassifyTrace(self: U; m3t: TypeUID): TraceKind =
-  VAR entry: REFANY; found: BOOLEAN; rec: RecordDebug; ptr : PointerDebug;
+  VAR entry: REFANY; found: BOOLEAN;
+      ptr: PointerDebug; rec: RecordDebug; obj: ObjectDebug;
   BEGIN
     (* short circuit *)
     IF m3t = M3IR.NO_UID THEN RETURN TraceKind.None; END;
-
     found := self.debugTable.get(m3t, (*OUT*)entry);
     IF NOT found THEN
       <*ASSERT FALSE*>  (* forces a declaration-ordering violation to surface
                             immediately at compile time rather than miscompile
                             silently — see the open ordering question below *)
     END;
+
     IF ISTYPE(entry, PointerDebug) THEN
       ptr := entry;
       IF ptr.traced THEN
@@ -1979,6 +1980,21 @@ PROCEDURE ClassifyTrace(self: U; m3t: TypeUID): TraceKind =
       ELSE
         RETURN TraceKind.None;
       END;
+
+    ELSIF ISTYPE(entry, ObjectDebug) THEN
+      (* Must be checked before RecordDebug -- ObjectDebug IS-A RecordDebug,
+         so the RecordDebug branch would otherwise silently swallow it, per
+         the TEXT/REFANY bug. Object-typed storage is always pointer-
+         represented, so classify by .traced directly, never by walking
+         .fields -- that's for the runtime walker's DoWalkRef later, not
+         this compile-time placement decision. *)
+      obj := entry;
+      IF obj.traced THEN
+        RETURN TraceKind.Scalar;
+      ELSE
+        RETURN TraceKind.None;
+      END;
+
     ELSIF ISTYPE(entry, RecordDebug) THEN
       rec := entry;
       FOR i := 0 TO rec.numFields - 1 DO
@@ -1987,8 +2003,9 @@ PROCEDURE ClassifyTrace(self: U; m3t: TypeUID): TraceKind =
         END;
       END;
       RETURN TraceKind.None;
+
     ELSE
-      RETURN TraceKind.None;  (* Array/Enum/Set/Packed/Proc/etc — deferred or N/A *)
+      RETURN TraceKind.None;   (* Array/Enum/Set/Packed/Proc/etc — deferred or N/A *)
     END;
   END ClassifyTrace;
 
@@ -5915,27 +5932,29 @@ PROCEDURE InitUids(self : U) =
     EVAL self.debugTable.put(UID_ROOT,
            NEW(ObjectDebug, tUid := UID_ROOT, bitSize := 0L,
            align := ptrBits, typeName := M3ID.Add("ROOT"),
-           encoding := DC.DW_ATE_address));
+           encoding := DC.DW_ATE_address, traced := TRUE));
     EVAL self.debugTable.put(UID_UNTRACED_ROOT,
            NEW(ObjectDebug, tUid := UID_UNTRACED_ROOT, bitSize := 0L,
            align := ptrBits, typeName := M3ID.Add("UNTRACED_ROOT"),
-           encoding := DC.DW_ATE_address));
+           encoding := DC.DW_ATE_address, traced := FALSE));
     EVAL self.debugTable.put(UID_ADDR,
            NEW(ObjectDebug, tUid := UID_ADDR, bitSize := ptrBits,
             align := ptrBits, typeName := M3ID.Add("ADDR"),
-            encoding := DC.DW_ATE_address));
+            encoding := DC.DW_ATE_address, traced := FALSE));
     EVAL self.debugTable.put(UID_TEXT,
            NEW(ObjectDebug, tUid := UID_TEXT, superType := UID_REFANY,
            bitSize := ptrBits, align := ptrBits, typeName := M3ID.Add("TEXT"),
-           encoding := DC.DW_ATE_address));
+           encoding := DC.DW_ATE_address, traced := TRUE));
     EVAL self.debugTable.put(UID_REFANY,
            NEW(ObjectDebug, tUid := UID_REFANY, superType := UID_ROOT,
            bitSize := ptrBits, align := ptrBits,
-           typeName := M3ID.Add("REFANY"), encoding := DC.DW_ATE_address));
+           typeName := M3ID.Add("REFANY"), encoding := DC.DW_ATE_address,
+           traced := TRUE));
     EVAL self.debugTable.put(UID_MUTEX,
            NEW(ObjectDebug, tUid := UID_MUTEX, superType := UID_ROOT,
            bitSize := ptrBits, align := ptrBits,
-           typeName := M3ID.Add("MUTEX"), encoding := DC.DW_ATE_address));
+           typeName := M3ID.Add("MUTEX"), encoding := DC.DW_ATE_address,
+           traced := TRUE));
 
     (* Other: *)
     EVAL self.debugTable.put(UID_RANGE_0_31,

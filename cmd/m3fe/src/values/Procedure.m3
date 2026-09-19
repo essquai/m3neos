@@ -754,32 +754,34 @@ PROCEDURE StartCall (t: T) =
 
 PROCEDURE EmitValueCall (t: T): IR.Val =
   VAR result := ProcType.CGResult (t.signature);
+      m3t := Type.GlobalUID(ProcType.Result(t.signature));
       handler,handler_body : IR.Label;
       info : IR.Var;
   BEGIN
     IF (t.impl_peer # NIL) THEN t := t.impl_peer; END;
 
     IF Marker.NextHandler(handler,handler_body,info) THEN
-      IR.Invoke_direct (t.cg_proc, result, handler);
+      IR.Invoke_direct (t.cg_proc, result, m3t, handler);
       Marker.Invoked();
     ELSE
-      IR.Call_direct (t.cg_proc, result);
+      IR.Call_direct (t.cg_proc, result, m3t);
     END;
     RETURN Marker.EmitExceptionTest (t.signature, need_value := TRUE);
   END EmitValueCall;
 
 PROCEDURE EmitCall (t: T) =
   VAR result := ProcType.CGResult (t.signature);
+      m3t := Type.GlobalUID(ProcType.Result(t.signature));
       handler,handler_body : IR.Label;
       info : IR.Var;
   BEGIN
     IF (t.impl_peer # NIL) THEN t := t.impl_peer; END;
 
     IF Marker.NextHandler(handler,handler_body,info) THEN
-      IR.Invoke_direct (t.cg_proc, result, handler);
+      IR.Invoke_direct (t.cg_proc, result, m3t, handler);
       Marker.Invoked();
     ELSE
-      IR.Call_direct (t.cg_proc, result);
+      IR.Call_direct (t.cg_proc, result, m3t);
     END;
     EVAL Marker.EmitExceptionTest (t.signature, need_value := FALSE);
   END EmitCall;

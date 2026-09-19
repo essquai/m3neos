@@ -161,7 +161,7 @@ PROCEDURE EmitRaise (v: Value.T;  arg: Expr.T) =
       IR.Add_offset (M3RT.ED_SIZE);
       IR.Boost_addr_alignment (Target.Address.align);
       IR.Load_indirect (IR.Type.Addr, IR.NO_UID, 0, Target.Address.size, IR.ProcAlign ());
-      IR.Gen_Call_indirect (IR.Type.Void, Target.DefaultCall);
+      IR.Gen_Call_indirect (IR.Type.Void, IR.NO_UID, Target.DefaultCall);
       EVAL Marker.EmitExceptionTest (Procedure.Signature (p), need_value := FALSE);
       IR.Free (tmp);
     END;
@@ -327,7 +327,7 @@ PROCEDURE DeclareRaiseProc (t: T): IR.Proc =
     r.name    := r.name & "_RAISE";
     r.cg_proc := IR.Declare_procedure (M3ID.Add (r.name), 3, IR.Type.Void,
                       lev := 0, cc := Target.DefaultCall, exported := FALSE,
-                      parent := NIL);
+                      parent := NIL, return_typeid := IR.NO_UID);
     r.arg     := IR.Declare_param (M3ID.NoID, Target.Address.size,
                       Target.Address.align, IR.Type.Addr,
                       IR.Declare_indirect (Type.GlobalUID (t.tipe)),

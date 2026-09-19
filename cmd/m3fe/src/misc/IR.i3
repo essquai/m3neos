@@ -323,7 +323,7 @@ PROCEDURE EmitText (t: TEXT;  is_const: BOOLEAN): INTEGER;
 PROCEDURE Import_procedure (n: Name;  n_params: INTEGER;  ret_type: Type;
                             cc: CallingConvention;
                             VAR(*OUT*) new: BOOLEAN;
-                            return_typeid: TypeUID := 0;
+                            return_typeid: TypeUID;
                             return_typename := M3ID.NoID): Proc;
 (* declare and import the external procedure with name 'n' and 'n_params'
    formal parameters.  It must be a top-level (=0) procedure that returns
@@ -334,7 +334,7 @@ PROCEDURE Import_procedure (n: Name;  n_params: INTEGER;  ret_type: Type;
 PROCEDURE Declare_procedure (n: Name;  n_params: INTEGER;  ret_type: Type;
                              lev: INTEGER;  cc: CallingConvention;
                              exported: BOOLEAN;  parent: Proc;
-                             return_typeid: TypeUID := 0;
+                             return_typeid: TypeUID;
                              return_typename := M3ID.NoID): Proc;
 (* declare a procedure named 'n' with 'n_params' formal parameters
    at static level 'lev'.  Sets "current procedure" to this procedure.
@@ -661,13 +661,13 @@ PROCEDURE Start_call_direct (p: Proc;  lev: INTEGER;  t: Type);
 (* begin a procedure call to procedure 'p' at static level 'lev'
    that will return a value of type 't'. *)
 
-PROCEDURE Call_direct (p: Proc;  t: Type);
+PROCEDURE Call_direct (p: Proc;  t: Type; return_typeid: TypeUID);
 (* call the procedure 'p'.  It returns a value of type t. *)
 
 PROCEDURE Start_call_indirect (t: Type;  cc: CallingConvention);
 (* begin an indirect procedure call that will return a value of type 't'. *)
 
-PROCEDURE Gen_Call_indirect (t: Type;  cc: CallingConvention);
+PROCEDURE Gen_Call_indirect (t: Type;  return_typeid: TypeUID; cc: CallingConvention;);
 (* call the procedure whose address is in s0.A and pop s0.  The
    procedure returns a value of type t.   Note: may also generate
    NIL checking code.  *)
@@ -678,12 +678,12 @@ PROCEDURE Start_try ();
 PROCEDURE End_try ();
 (* End a try block. *)
 
-PROCEDURE Invoke_direct (p: Proc;  t: Type; handler : Label);
+PROCEDURE Invoke_direct (p: Proc;  t: Type; return_typeid: TypeUID; handler : Label);
 (* call the procedure 'p' from within a TRY block. If the outcome is
    an exception resume execution at 'handler' which will be a 
    landing_pad, else at the label immediately succeeding the call. *)
 
-PROCEDURE Invoke_indirect (t: Type; cc: CallingConvention; handler : Label);
+PROCEDURE Invoke_indirect (t: Type; return_typeid: TypeUID; cc: CallingConvention; handler : Label);
 (* call the procedure whose address is in s0.A from within a TRY block. If
    the outcome is an exception resume executeion at 'handler' which will be
    a landing_pad, else at the label immediately succeeding the call.*)

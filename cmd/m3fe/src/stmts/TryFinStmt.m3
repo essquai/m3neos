@@ -237,7 +237,7 @@ PROCEDURE Compile2 (p: P): Stmt.Outcomes =
       IR.Start_call_direct (p.handler.cg_proc, p.handler.level, IR.Type.Void);
       (* Shouldn't we pass the activation parameter here?
          What value do we pass? *)
-      IR.Call_direct (p.handler.cg_proc, IR.Type.Void);
+      IR.Call_direct (p.handler.cg_proc, IR.Type.Void, IR.NO_UID);
     END;
     IR.Set_label (lab+1, barrier := TRUE);
 
@@ -274,7 +274,8 @@ PROCEDURE EmitDecl (x: HandlerProc) =
       IF (x.parent # NIL) THEN par := x.parent.cg_proc; END;
       x.cg_proc := IR.Declare_procedure (M3ID.Add (x.name), 1, IR.Type.Void,
                                          x.level, Target.DefaultCall,
-                                         exported := FALSE, parent := par);
+                                         exported := FALSE, parent := par,
+                                         return_typeid := IR.NO_UID);
       x.activation := IR.Declare_param (M3ID.NoID, Target.Address.size,
                                         Target.Address.align, IR.Type.Addr,
                                         Type.GlobalUID (Addr.T),

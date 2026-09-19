@@ -8,8 +8,6 @@
 
 MODULE IR;
 
-IMPORT Cstdlib;
-
 IMPORT Text, IntIntTbl, IntRefTbl, Fmt, Word;
 IMPORT Scanner, Error, Module, RunTyme;
 IMPORT M3, M3IR, M3IR_Asm, M3IR_Check, M3ID, RTIO, RTParams;
@@ -538,13 +536,6 @@ PROCEDURE Declare_temp (s: Size;  a: Alignment;  t: Type; m3t: TypeUID;
       END;
     END;
   END Declare_temp;
-
-PROCEDURE Declare_addr_temp (in_memory: BOOLEAN) : Var =
-  BEGIN
-    RETURN Declare_temp
-             (Target.Address.size, Target.Address.align,
-              Type.Addr, M3IR.NO_UID, in_memory);
-  END Declare_addr_temp; 
 
 PROCEDURE Free_temp (<*UNUSED*> v: Var) =
   BEGIN
@@ -2068,7 +2059,6 @@ x10 := stack[SCheck(1,"Load_indirect-x10")];
         ForceStacked ();  (* to connect the error message *)
         SimpleIndirectLoad (x, t, NO_UID, addr_align);
         ForceStacked ();
-        Cstdlib.abort();
       END;
     END (*WITH*);
   END Load_indirect;
@@ -3624,11 +3614,11 @@ PROCEDURE Start_call_direct (proc: Proc;  lev: INTEGER;  t: Type) =
     cg.start_call_direct (proc, lev, t);
   END Start_call_direct;
 
-PROCEDURE Call_direct (p: Proc;  t: Type) =
+PROCEDURE Call_direct (p: Proc;  t: Type; m3t: TypeUID) =
   BEGIN
     SEmpty ("Call_direct");
     cg.call_direct (p, t);
-    PushResult (t);
+    PushResult (t, m3t);
   END Call_direct;
 
 PROCEDURE Start_call_indirect (t: Type;  cc: CallingConvention) =
@@ -3637,14 +3627,14 @@ PROCEDURE Start_call_indirect (t: Type;  cc: CallingConvention) =
     cg.start_call_indirect (t, cc);
   END Start_call_indirect;
 
-PROCEDURE Gen_Call_indirect (t: Type;  cc: CallingConvention) =
+PROCEDURE Gen_Call_indirect (t: Type; m3t: TypeUID; cc: CallingConvention;) =
   BEGIN
     IF Host.doProcChk THEN Check_nil (RuntimeError.BadMemoryReference); END;
     ForceStacked ();
     cg.call_indirect (t, cc);
     SPop (1, "Call_indirect");
     SEmpty ("Call_indirect");
-    PushResult (t);
+    PushResult (t, m3t);
   END Gen_Call_indirect;
 
 PROCEDURE Start_try () =
@@ -3657,16 +3647,16 @@ PROCEDURE End_try () =
     cg.end_try ();
   END End_try;
 
-PROCEDURE Invoke_direct (p: Proc;  t: Type; handler : Label) =
+PROCEDURE Invoke_direct (p: Proc;  t: Type; m3t: TypeUID; handler : Label) =
   VAR next := Next_label ();
   BEGIN
     SEmpty ("Invoke_direct");
     cg.invoke_direct (p, t, next, handler);
     cg.set_label(next);
-    PushResult (t);
+    PushResult (t, m3t);
   END Invoke_direct;
 
-PROCEDURE Invoke_indirect (t: Type; cc: CallingConvention; handler : Label) =
+PROCEDURE Invoke_indirect (t: Type; m3t: TypeUID; cc: CallingConvention; handler : Label) =
   VAR next := Next_label ();
   BEGIN
     IF Host.doProcChk THEN Check_nil (RuntimeError.BadMemoryReference); END;
@@ -3675,19 +3665,25 @@ PROCEDURE Invoke_indirect (t: Type; cc: CallingConvention; handler : Label) =
     cg.set_label(next);
     SPop (1, "Invoke_indirect");
     SEmpty ("Invoke_indirect");
-    PushResult (t);
+    PushResult (t, m3t);
   END Invoke_indirect;
 
 PROCEDURE Landing_pad (handler : Label; READONLY catches : ARRAY OF TypeUID) =
   BEGIN
     SEmpty ("Landing_pad");
     cg.landing_pad (Type.Addr, handler, catches);
-    PushResult (Type.Addr);
+    PushResult (Type.Addr, NO_UID);
   END Landing_pad;
 
-PROCEDURE PushResult (t: Type) =
+PROCEDURE PushResult (t: Type; m3t: TypeUID) =
   BEGIN
-    IF (t # Type.Void) THEN  SPush (t)  END;
+    IF (t # Type.Void) THEN
+      SPush (t);
+      (* track the Modula-3 language type return value *)
+      WITH x = stack[SCheck(1,"PushResult")] DO
+        x.m3t := m3t;
+      END;
+    END;
   END PushResult;
 
 PROCEDURE Pop_param (t: Type) =

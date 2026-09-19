@@ -133,7 +133,7 @@ PROCEDURE CompileProcAllocateJmpbufs (p: Proc) =
       (* x * 1 == x *)
     END;
     IR.Pop_param(Target.Word.cg_type);
-    IR.Call_direct(alloca, Target.Address.cg_type);
+    IR.Call_direct(alloca, Target.Address.cg_type, IR.NO_UID);
 
     IR.Store_addr(p.jmpbufs[0]);
 

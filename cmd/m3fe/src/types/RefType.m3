@@ -340,7 +340,8 @@ PROCEDURE GenInitProc (p: P): IR.Proc =
     IR.Gen_location (p.origin);
     proc := IR.Declare_procedure (M3ID.Add (name), 1, IR.Type.Void,
                                   lev := 0, cc := Target.DefaultCall,
-                                  exported := FALSE, parent := NIL);
+                                  exported := FALSE, parent := NIL,
+                                  return_typeid := IR.NO_UID);
     ref := IR.Declare_param (M3ID.NoID, Target.Address.size,
                              Target.Address.align, IR.Type.Addr,
                              Type.GlobalUID (p),

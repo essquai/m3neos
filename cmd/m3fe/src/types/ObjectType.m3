@@ -810,7 +810,7 @@ PROCEDURE GenInitProc (p: P): IR.Proc =
     IR.Gen_location (p.origin);
     proc := IR.Declare_procedure (M3ID.Add (name), 1, IR.Type.Void,
                                   0, Target.DefaultCall, exported:= FALSE,
-                                  parent := NIL);
+                                  parent := NIL, return_typeid := IR.NO_UID);
     obj := IR.Declare_param (M3ID.NoID, Target.Address.size,
                              Target.Address.align, IR.Type.Addr,
                              Type.GlobalUID (p),
@@ -894,7 +894,7 @@ PROCEDURE GenLinkProc (p: P;  defaults: INTEGER): IR.Proc =
     IR.Gen_location (p.origin);
     proc := IR.Declare_procedure (M3ID.Add (name), 1, IR.Type.Void,
                                   0, Target.DefaultCall, exported:= FALSE,
-                                  parent := NIL);
+                                  parent := NIL, return_typeid := IR.NO_UID);
     defn := IR.Declare_param (M3ID.NoID, Target.Address.size,
                              Target.Address.align, IR.Type.Addr,
                              Type.GlobalUID (Addr.T),

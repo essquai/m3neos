@@ -236,7 +236,7 @@ PROCEDURE SetLock (acquire: BOOLEAN;  var: IR.Var;  offset: INTEGER) =
     IR.Load_indirect (IR.Type.Addr, IR.NO_UID, method_offset, Target.Address.size); (* proc *)
     IR.Boost_addr_alignment (Target.Address.align);
 
-    IR.Gen_Call_indirect (IR.Type.Void, Target.DefaultCall);    
+    IR.Gen_Call_indirect (IR.Type.Void, IR.NO_UID, Target.DefaultCall);    
   END SetLock;
 
 PROCEDURE CallFinallyHandler (info: IR.Var;
@@ -244,13 +244,13 @@ PROCEDURE CallFinallyHandler (info: IR.Var;
   BEGIN
     IF (handler # NIL) THEN
       IR.Start_call_direct (handler, h_level, IR.Type.Void);
-      IR.Call_direct (handler, IR.Type.Void);
+      IR.Call_direct (handler, IR.Type.Void, IR.NO_UID);
     ELSE
       IR.Start_call_indirect (IR.Type.Void, Target.DefaultCall);
       IR.Load_addr (info, IR.NO_UID, M3RT.EF2_frame, Target.Address.align);
       IR.Pop_static_link ();
       IR.Load_addr (info, IR.NO_UID, M3RT.EF2_handler, Target.Address.align);
-      IR.Gen_Call_indirect (IR.Type.Void, Target.DefaultCall);
+      IR.Gen_Call_indirect (IR.Type.Void, IR.NO_UID, Target.DefaultCall);
     END;
   END CallFinallyHandler;
 
@@ -292,7 +292,7 @@ PROCEDURE CaptureState (frame: IR.Var;  jmpbuf: IR.Var;  handler: IR.Label) =
       IR.Pop_param (IR.Type.Int32); (* int *)
     END;
 
-    IR.Call_direct (setjmp, Target.Integer.cg_type);
+    IR.Call_direct (setjmp, Target.Integer.cg_type, IR.NO_UID);
     IR.If_true (handler, IR.Never);
   END CaptureState;
 

@@ -48,6 +48,7 @@ PROCEDURE InnerPrep (ce: CallExpr.T) =
     p_type       : Type.T;
     p_temp       : IR.Val;
     t_result     : Type.T;
+    t_m3t        : IR.TypeUID;
     cg_result    : IR.Type;
     tmp_result   : IR.Var;
     lhs_result   : IR.Val := NIL;
@@ -93,12 +94,13 @@ PROCEDURE InnerPrep (ce: CallExpr.T) =
 
     (* get the result type and allocate the temp for return results *)
     t_result     := Type.CheckInfo (ProcType.Result (p_type), result_info);
+    t_m3t        := Type.GlobalUID(t_result);
     cg_result    := ProcType.CGResult (p_type);
     align_result := result_info.alignment;
     large_result := ProcType.LargeResult (t_result);
     IF large_result AND NOT ce.doDirectAssign THEN
       tmp_result := IR.Declare_temp (result_info.size, align_result,
-                                     IR.Type.Struct, Type.GlobalUID (t_result),
+                                     IR.Type.Struct, t_m3t,
                                      in_memory := TRUE);
     END;
 
@@ -141,15 +143,15 @@ PROCEDURE InnerPrep (ce: CallExpr.T) =
     IF (p_value # NIL) THEN
       ce.tmp := Procedure.EmitValueCall (p_value);
     ELSIF CouldBeClosure (proc) THEN
-      ce.tmp := GenClosureCall (p_temp, cg_result, p_type, callConv);
+      ce.tmp := GenClosureCall (p_temp, cg_result, t_m3t, p_type, callConv);
       IR.Free (p_temp);
     ELSE
       IR.Push (p_temp);
       IF Marker.NextHandler(handler, handler_body, info) THEN
-        IR.Invoke_indirect(cg_result, callConv, handler);
+        IR.Invoke_indirect(cg_result, t_m3t, callConv, handler);
         Marker.Invoked();
       ELSE
-        IR.Gen_Call_indirect (cg_result, callConv);
+        IR.Gen_Call_indirect (cg_result, t_m3t, callConv);
       END;
       ce.tmp := Marker.EmitExceptionTest (p_type, need_value := TRUE);
       IR.Free (p_temp);
@@ -217,7 +219,7 @@ PROCEDURE GenResultArg (lhs: IR.Val;  tmp: IR.Var;  align: IR.Alignment) =
     IR.Pop_param (IR.Type.Addr);
   END GenResultArg;
 
-PROCEDURE GenClosureCall (p_temp: IR.Val;  result: IR.Type;
+PROCEDURE GenClosureCall (p_temp: IR.Val;  result: IR.Type; m3t: IR.TypeUID;
                           sig: Type.T;  cc: IR.CallingConvention): IR.Val =
   VAR skip := IR.Next_label ();
       handler,handler_body : IR.Label;
@@ -233,10 +235,10 @@ PROCEDURE GenClosureCall (p_temp: IR.Val;  result: IR.Type;
     IR.Set_label (skip);
     IR.Push (p_temp);
     IF Marker.NextHandler(handler, handler_body, info) THEN
-      IR.Invoke_indirect(result, cc, handler);
+      IR.Invoke_indirect(result, m3t, cc, handler);
       Marker.Invoked();
     ELSE
-      IR.Gen_Call_indirect (result, cc);
+      IR.Gen_Call_indirect (result, m3t, cc);
     END;
     RETURN Marker.EmitExceptionTest (sig, need_value := TRUE);
   END GenClosureCall;
