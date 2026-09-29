@@ -55,6 +55,8 @@ FROM LLVMTypes IMPORT int64_t , uint64_t , uint32_t, unsigned;
 FROM LLVMTypes IMPORT MetadataRef, StringRef, ArrayRefOfMetadataRef;
 FROM LLVMTypes IMPORT ArrayRefOfint64_t, ArrayRefOfuint64_t;
 
+IMPORT TypeComp;
+
 <*FATAL ANY*>
 
 (* Pervasive ASSUMPTION: Modula-3 NIL = C++ null pointer. *)
@@ -150,6 +152,11 @@ REVEAL
     seenConst     := FALSE;
     debugObj      : ROOT;
     dwarfDbg      := TRUE; (* Dwarf output instead of CodeView *)
+
+    (* generating llvm.gcroot metadata *)
+    next_meta     := 1;
+    metaTable     : IntRefTbl.T := NIL;
+    metaComp      : TypeComp.T := NIL;
 
 METHODS
     allocVar(v : LvVar) := AllocVar;
@@ -427,6 +434,10 @@ TYPE
 
   LvStruct = OBJECT
     struct : LLVM.TypeRef;
+  END;
+
+  LvMeta = OBJECT
+    meta : LLVM.ValueRef;
   END;
 
   (* objects for the global segment *)
@@ -863,6 +874,8 @@ PROCEDURE New
                 dataRep := dataRep,
                 structTable := NEW (IntRefTbl.Default).init (20),
                 debugTable := NEW (IntRefTbl.Default).init (20),
+                metaTable := NEW (IntRefTbl.Default).init (20),
+                metaComp := NEW(TypeComp.T),
                 labelTable := NEW (IntRefTbl.Default).init (20),
                 exceptsTable := NEW (IntRefTbl.Default).init (20),
                 globalTable := NEW (TextRefTbl.Default).init (20),
@@ -1956,13 +1969,16 @@ PROCEDURE VName(v : LvVar; debug := FALSE) : TEXT =
     RETURN name;
   END VName;
 
-(* Determine Garbage Collection Root status *)
+(*----------------------------------------------------------- llvm.gcroot ---*)
 
+(* Determine Garbage Collection Root status *)
 TYPE TraceKind = {None, Scalar, Composite};
 
 PROCEDURE ClassifyTrace(self: U; m3t: TypeUID): TraceKind =
   VAR entry: REFANY; found: BOOLEAN;
-      ptr: PointerDebug; rec: RecordDebug; obj: ObjectDebug;
+      ptr: PointerDebug;
+      rec: RecordDebug;
+      obj: ObjectDebug;
   BEGIN
     (* short circuit *)
     IF m3t = M3IR.NO_UID THEN RETURN TraceKind.None; END;
@@ -2009,6 +2025,99 @@ PROCEDURE ClassifyTrace(self: U; m3t: TypeUID): TraceKind =
     END;
   END ClassifyTrace;
 
+(* Locate llvm.gcroot metadata *)
+PROCEDURE FindMeta (self : U; tk: TraceKind; m3t: TypeUID) : LLVM.ValueRef =
+  VAR
+    metaVal : LLVM.ValueRef;
+    metaRef : REFANY;
+    recDbg  : REFANY;
+    rec     : RecordDebug;
+    found   : BOOLEAN;
+  BEGIN
+    IF tk = TraceKind.Composite THEN
+      (* already created? *)
+      found := self.metaTable.get(m3t, (*OUT*)metaRef);
+      IF found THEN
+        metaVal := NARROW(metaRef, LvMeta).meta;
+      ELSE
+        found   := self.debugTable.get(m3t, (*OUT*)recDbg);
+        <*ASSERT found*>
+        rec     := NARROW(recDbg, RecordDebug);
+        metaVal := GenMeta(self, rec);
+
+        (* save the metadata *)
+        metaRef := NEW(LvMeta, meta := metaVal);
+        EVAL self.metaTable.put(m3t,metaRef);
+      END;
+    ELSE
+      (* metadata is NULL *)
+      metaVal := LLVM.LLVMConstNull(AdrTy);
+    END;
+    RETURN metaVal;
+  END FindMeta;
+
+(* Compile metadata for a record *)
+PROCEDURE CompileMeta (self : U; base: INTEGER; rec: RecordDebug) =
+  VAR
+    found: BOOLEAN;
+    entry: REFANY;
+    offset: INTEGER;
+    nested: RecordDebug;
+    ptr: PointerDebug;
+    obj: ObjectDebug;
+  BEGIN
+    FOR i := 0 TO rec.numFields - 1 DO
+      offset := base + VAL(rec.fields[i].bitOffset, INTEGER);
+      found  := self.debugTable.get(rec.fields[i].tUid, entry);
+      <*ASSERT found*>
+      IF ISTYPE(entry, PointerDebug) THEN
+        ptr := NARROW(entry,PointerDebug);
+        IF ptr.traced THEN self.metaComp.add(offset, TypeComp.Op.Ref, 0) END;
+      ELSIF ISTYPE(entry, ObjectDebug) THEN
+        obj := NARROW(entry,ObjectDebug);
+        IF obj.traced THEN self.metaComp.add(offset, TypeComp.Op.Ref, 0) END;
+      ELSIF ISTYPE(entry, RecordDebug) THEN
+        (* recurively descend to next record *)
+        nested := NARROW(entry,RecordDebug);
+        CompileMeta(self, offset, nested);
+      ELSE
+        (* not a metadata reference - ignore *)
+      END;
+    END;
+  END CompileMeta;
+
+(* Generate llvm.gcroot metadata *)
+PROCEDURE GenMeta (self : U; rec: RecordDebug) : LLVM.ValueRef =
+  VAR
+    bytes : TypeComp.ByteList;
+    typ   : LLVM.TypeRef;
+    str   : LLVM.ValueRef;
+    var   : LLVM.ValueRef;
+    mName : TEXT;
+  BEGIN
+    mName := "meta." & ItoT(self.next_meta);
+    INC(self.next_meta);
+
+    (* Finalise metadata bytecode *)
+    self.metaComp.start();
+      CompileMeta(self, 0, rec);
+    bytes := self.metaComp.finish();
+
+    (* Don't terminate string *)
+    str := LLVM.LLVMConstString(ADR(bytes[0]), NUMBER(bytes^), TRUE);
+
+
+    (* Finalise metadata global variable *)
+    typ := LLVM.LLVMArrayType(i8Type, NUMBER(bytes^));
+    var := LLVM.LLVMAddGlobal(modRef, typ, LT(mName));
+    LLVM.LLVMSetLinkage(var, LLVM.Linkage.Internal);
+    LLVM.LLVMSetInitializer(var, str);
+    LLVM.LLVMSetGlobalConstant(var, TRUE);
+
+    RETURN var;    
+  END GenMeta;
+
+
 (* Generate llvm code to allocate v in the current basic block. *)
 PROCEDURE AllocVar(self : U; v : LvVar) =
   CONST numParams = 2;
@@ -2027,14 +2136,9 @@ PROCEDURE AllocVar(self : U; v : LvVar) =
        be forced onto the shadow stack *)
     tk := ClassifyTrace(self, v.m3t); 
     IF tk # TraceKind.None THEN
-      IF tk = TraceKind.Scalar THEN
-        metaVal := LLVM.LLVMConstNull(AdrTy);
-      ELSE (* Composite *)
-        (* Placeholder for Phase C, hence C0 ...*)
-        metaVal := LLVM.LLVMConstNull(AdrTy); 
-        (* metaVal := LLVM.LLVMConstInt(LLVM.LLVMInt32Type(), 16_C0C0C0C0L, FALSE); *)
-        (* metaVal := TypeDescriptorGlobal(self, v.m3t);   still open, per last message *)
-      END;
+      (* build metadata bytecode *)
+      metaVal := FindMeta(self, tk, v.m3t);
+
       fn := IntrinsicFunc(M3Intrinsic.m3gcroot, numParams, AdrAdrTy, AdrTy);
       paramsRef := NewValueArr(paramsArr,numParams);
       paramsArr[0] := v.lv;

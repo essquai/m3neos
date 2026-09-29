@@ -6,6 +6,7 @@ include("version.quake")
 version_impl("Version")
 
 module("LLVM_WASM")
+module("TypeComp")
 
 implementation("Main")
 
