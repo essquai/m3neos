@@ -11,7 +11,7 @@ UNSAFE MODULE LLVM_WASM;
 IMPORT Ctypes;
 IMPORT FileRd;
 IMPORT IntRefTbl;
-IMPORT IO; (* debug this module *)
+IMPORT IO, Fmt; (* debug this module *)
 IMPORT M3toC;
 IMPORT MD5;
 IMPORT Pathname;
@@ -113,6 +113,10 @@ REVEAL
     (* the target triple and data rep passed in from user. *)
     targetTriple  : TEXT;
     dataRep       : TEXT;
+
+    (* pure wasm or just simulating - TODO: default simulate for now *)
+    isWasm        : BOOLEAN := FALSE;
+    ptrAlign      : CARDINAL := 8;
 
     (* Are we generating for windows. Primarily for type of debug output *)
     isWindows     : BOOLEAN := FALSE;
@@ -370,20 +374,24 @@ TYPE
     cc : CallingConvention;
     exported : BOOLEAN := FALSE;
     lvProc : LLVM.ValueRef;  (* llvm procedure definition *)
+    gcStrategy : BOOLEAN := FALSE; (* llvm set GC strategy *)
     procTy : LLVM.TypeRef;
     parent : LvProc := NIL;
     entryBB : LLVM.BasicBlockRef;
-    (* ^For stored static link, params, vars, temps, display construction. *)
-    secondBB : LLVM.BasicBlockRef;
-    (* ^For other M3-coded stuff.  There are two separate basic blocks
-       here, because we need to be able to intersperse adding things at the
-       ends of each.  This seems easier than shuffling insertion points in
-       one BB.  secondBB is the unconditional successor of entryBB. *)
-    (* NOTE: It is hard to tell from the header files, but apparently, there
-             is only one insertion point globally, not one per BB. *)
+    (* ^For stored static link, params, vars, temps, display construction,
+       and gcroot calls. *)
+    prologBB : LLVM.BasicBlockRef;
+    (* ^facilitates garbage collection - safepoint check and GC root zeroing
+       prologBB is the unconditional successor of entryBB. IMPORTANT: as it
+       terminates in a conditional branch, do not append to the block. *)
+    bodyBB : LLVM.BasicBlockRef;
+    (* ^First modula-3 code block. The three blocks enable variable setup
+       after the body has been been generated and without moving the builder
+       insertion point. bodyBB comes after the safepoint check. *)
     saveBB : LLVM.BasicBlockRef; (* for nested procs save the bb *)
     localStack  : RefSeq.T := NIL;
     paramStack  : RefSeq.T := NIL;
+    rootStack   : RefSeq.T := NIL;
     uplevelRefdStack  : RefSeq.T := NIL;
       (* ^List of params and locals that are uplevel-referenced. *)
     cumUplevelRefdCt : CARDINAL := 0;
@@ -519,8 +527,8 @@ TYPE
 
   M3Intrinsic = {m3memset,m3memcpy,m3memmov,m3round,m3floor,m3trunc,
                  m3ceil,m3fabs,m3fmin,m3fmax,m3fshl,m3fshr,
-                 m3smin,m3smax,m3abs,m3sponentry,m3gcroot};
-  IR = RECORD id : CARDINAL; name : TEXT END;
+                 m3smin,m3smax,m3abs,m3sponentry,m3gcroot,m3tladdr};
+  IR = RECORD id : CARDINAL; name : TEXT; overload := FALSE; END;
   IntrinArr = ARRAY M3Intrinsic OF IR;
 
   VAR
@@ -531,7 +539,8 @@ TYPE
                     IR{0,"llvm.ceil"}, IR{0,"llvm.fabs"}, IR{0,"llvm.minnum"},
                     IR{0,"llvm.maxnum"}, IR{0,"llvm.fshl"}, IR{0,"llvm.fshr"},
                     IR{0,"llvm.smin"}, IR{0,"llvm.smax"}, IR{0,"llvm.abs"},
-                    IR{0,"llvm.sponentry"}, IR{0,"llvm.gcroot"}};
+                    IR{0,"llvm.sponentry"}, IR{0,"llvm.gcroot"},
+                    IR{0,"llvm.threadlocal.address"}};
 
 PROCEDURE SignExtend(a, b: INTEGER): INTEGER =
   BEGIN
@@ -717,6 +726,23 @@ VAR
 
   UseStackWalker := FALSE;
 
+  (* "compile" EmitSafepointCheck declarations *)
+  i32Type    : LLVM.TypeRef; (* llvm i32 *)
+  sizeT      : LLVM.TypeRef; (* llvm size_t *)
+  ptrType    : LLVM.TypeRef; (* llvm ptr *)
+  voidType   : LLVM.TypeRef; (* llvm void *)
+  lockType   : LLVM.TypeRef; (* nsyn_lock_t *)
+  nexusType  : LLVM.TypeRef; (* nthr_nexus_t *)
+  ctxtType   : LLVM.TypeRef; (* nthr_context_t *)
+
+  nexusVar   : LLVM.ValueRef; (* nthr_nexus_t nthr_nexus *)
+  currentVar : LLVM.ValueRef; (* extern _Thread_local nthr_context_t *nthr_current *)
+  parkType   : LLVM.TypeRef;
+  parkFunc   : LLVM.ValueRef; (* void nthr_park() *)
+
+TYPE
+  TLM = LLVM.ThreadLocalMode;
+
 (*--------------------------------------------------------------- Utility ---*)
 
 PROCEDURE TIntToint64_t(Val: TInt.Int) : int64_t =
@@ -740,6 +766,13 @@ PROCEDURE IsWindows(targetTriple : TEXT) : BOOLEAN =
     (* This test is dependent on the target triple *)
     RETURN TextExtras.FindSub(targetTriple,"windows",index);
   END IsWindows;
+
+PROCEDURE IsWasm32(targetTriple : TEXT) : BOOLEAN =
+  VAR index : CARDINAL;
+  BEGIN
+    (* This test is dependent on the target triple *)
+    RETURN TextExtras.FindSub(targetTriple,"wasm32",index);
+  END IsWasm32;
 
 PROCEDURE SetDebugType(self : U) =
   BEGIN
@@ -885,6 +918,7 @@ PROCEDURE New
                 m3llvmDebugLev := m3llvmDebugLev,
                 genDebug := genDebug,
                 isWindows := IsWindows(targetTriple),
+                isWasm := IsWasm32(targetTriple),
                 debugLexStack := NEW(RefSeq.T).init(),
                 allocaName := M3ID.Add("alloca"));
   END New;
@@ -1016,7 +1050,7 @@ PROCEDURE Zero(t : LLVM.TypeRef) : LLVM.ValueRef =
   BEGIN
     RETURN LLVM.LLVMConstNull(t);
 (* CHECK: ^Is the result of every execution here unique?
-   We need it to be, in places. *)
+   We need it to be, in places. Answer: No, checked empirically. *)
   END Zero;
 
 PROCEDURE One(t : LLVM.TypeRef) : LLVM.ValueRef =
@@ -1176,28 +1210,33 @@ PROCEDURE FloatType(t : RType) : LLVM.TypeRef =
     RETURN res;
   END FloatType;
 
-PROCEDURE IntrinsicTypes(p1,p2,p3 : LLVM.TypeRef) : UNTRACED REF LLVM.TypeRef =
+PROCEDURE IntrinsicTypes(p1,p2,p3,p4 : LLVM.TypeRef) : UNTRACED REF LLVM.TypeRef =
   VAR
     typesArr : TypeArrType;
     typesRef : TypeRefType;
   BEGIN
-    typesRef := NewTypeArr(typesArr,3);
+    typesRef := NewTypeArr(typesArr,4);
     typesArr[0] := p1;
     typesArr[1] := p2;
     typesArr[2] := p3;
+    typesArr[3] := p4;
     RETURN typesRef;
   END IntrinsicTypes;
 
-PROCEDURE IntrinsicFunc(m3Id : M3Intrinsic; numParms : CARDINAL; t1,t2,t3 : LLVM.TypeRef := NIL) : LLVM.ValueRef =
+PROCEDURE IntrinsicFunc(m3Id : M3Intrinsic; numParms : CARDINAL; t1,t2,t3,t4 : LLVM.TypeRef := NIL) : LLVM.ValueRef =
   VAR
     intrinId := IA[m3Id].id;
-    types := IntrinsicTypes(t1,t2,t3);
+    overload := IA[m3Id].overload;
+    types := IntrinsicTypes(t1,t2,t3,t4);
     ret : LLVM.ValueRef;
   BEGIN
     IF intrinId = 0 THEN
       intrinId := LLVM.LLVMLookupIntrinsicID(LT(IA[m3Id].name),Text.Length(IA[m3Id].name));
       IA[m3Id].id := intrinId;
+      overload := LLVM.LLVMIntrinsicIsOverloaded(intrinId);
+      IA[m3Id].overload := overload;
     END;
+    IF NOT overload THEN numParms := 0; END;
     ret := LLVM.LLVMGetIntrinsicDeclaration(modRef,intrinId,types,numParms);
     RETURN ret;
   END IntrinsicFunc;
@@ -1224,6 +1263,7 @@ PROCEDURE CGProvidedStaticLinkFormal(proc : LvProc) : LvVar =
    This is enough to handle calls and assignments of it, without requiring
    that its body have been seen. *)
 PROCEDURE BuildFunc(self : U; p : Proc) =
+  CONST UW_async = 2L;
   VAR
     param : LvVar;
     mlProc : LvProc;
@@ -1304,7 +1344,9 @@ PROCEDURE BuildFunc(self : U; p : Proc) =
     mlProc.lvProc := LLVM.LLVMAddFunction(modRef, LT(procTextName), mlProc.procTy);
 
     (* c funcs seem to have these attrs  - fix this *)
-    LLVM.LLVMAddAttributeAtIndex(mlProc.lvProc, LLVM.AttributeFunctionIndex, EnumAttr("uwtable"));
+    IF NOT self.isWasm THEN
+      LLVM.LLVMAddAttributeAtIndex(mlProc.lvProc, LLVM.AttributeFunctionIndex, EnumAttr("uwtable", UW_async));
+    END;
 
     IF mlProc.returnsTwice THEN
       (* make this the only attr and not add all the others - fix this *)
@@ -1315,7 +1357,7 @@ PROCEDURE BuildFunc(self : U; p : Proc) =
     END;
 
     IF mlProc.cc.m3cg_id = Target.STDCALL THEN
-      LLVM.LLVMSetInstructionCallConv(mlProc.lvProc, LLVM.X86StdcallCallConv);
+      LLVM.LLVMSetFunctionCallConv(mlProc.lvProc, LLVM.X86StdcallCallConv);
     END;
 
     (* This says the procedure never raises an exception, which we can't
@@ -1325,9 +1367,9 @@ PROCEDURE BuildFunc(self : U; p : Proc) =
 
     (* test target dependent attrs. The target triple
     needs to be checked to determine which flags make sense. *)
-    LLVM.LLVMAddTargetDependentFunctionAttr(mlProc.lvProc,LT("target-features"),LT("+fxsr,+mmx,+sse,+sse2,+x87"));
-    LLVM.LLVMAddTargetDependentFunctionAttr(mlProc.lvProc,LT("unsafe-fp-math"),LT("false"));
-    LLVM.LLVMAddTargetDependentFunctionAttr(mlProc.lvProc,LT("use-soft-float"),LT("false"));
+    IF NOT self.isWasm THEN
+      LLVM.LLVMAddTargetDependentFunctionAttr(mlProc.lvProc,LT("target-features"),LT("+fxsr,+mmx,+sse,+sse2,+x87"));
+    END;
 
     <*ASSERT LLVM.LLVMCountParams(mlProc.lvProc) = numParams *>
 
@@ -1382,6 +1424,13 @@ PROCEDURE DumpLLVMIR(<*UNUSED*> self : U; BitcodeFileName, AsmFileName: TEXT) =
   VAR
     msg : Ctypes.char_star_star := NIL;
   BEGIN
+    (* Verify the module *)
+    IF LLVM.LLVMVerifyModule(modRef, LLVM.VerifierFailureAction.PrintMessageAction, msg) THEN
+      IF msg # NIL THEN
+        LLVM.LLVMDisposeMessage(msg^);
+      END;
+      (* RETURN; *)
+    END;
     (* Write Assembly format 1st, in case of obscure failures during write. *)
     IF AsmFileName # NIL THEN
       EVAL LLVM.LLVMPrintModuleToFile(modRef, LT(AsmFileName), msg);
@@ -2127,17 +2176,22 @@ PROCEDURE AllocVar(self : U; v : LvVar) =
     paramsRef : ValueRefType;
     fnTy : LLVM.TypeRef;
     tk : TraceKind;
+    st : LLVM.ValueRef;
   BEGIN
+    <* ASSERT LLVM.LLVMGetInsertBlock(builderIR) = LLVM.LLVMGetEntryBasicBlock(self.curProc.lvProc) *>
     v.lv := LLVM.LLVMBuildAlloca(builderIR, v.lvType, LT(VName(v)));
     LLVM.LLVMSetAlignment(v.lv,v.align);
 
-    (* wasm32-specific codegen to ensure llvm does not optimize
-       this stack variable away; composites and pointers should
+    (* wasm32-design-intent target codegen to ensure llvm does not
+       optimize this stack variable away; composites and pointers should
        be forced onto the shadow stack *)
     tk := ClassifyTrace(self, v.m3t); 
     IF tk # TraceKind.None THEN
       (* build metadata bytecode *)
       metaVal := FindMeta(self, tk, v.m3t);
+
+      (* require a GC strategy in end_procedure *)
+      v.inProc.gcStrategy := TRUE;
 
       fn := IntrinsicFunc(M3Intrinsic.m3gcroot, numParams, AdrAdrTy, AdrTy);
       paramsRef := NewValueArr(paramsArr,numParams);
@@ -2146,6 +2200,23 @@ PROCEDURE AllocVar(self : U; v : LvVar) =
       fnTy := LLVM.LLVMGetFunctionType(fn);
       callRes := LLVM.LLVMBuildCall2(builderIR, fnTy, fn, paramsRef,
                                       numParams, LT(""));
+
+      (* LLVM BUG: if not initialized, llc crashes. Workaround is to
+         store a single byte onto the record. Otherwise llc creates an
+         aggregate write for it that crashes. Applies only to aggregates,
+         not to pointers nor scalars. NOTE WELL: Aggregates so marked 
+         must also be initialised properly in the first non-entry block.
+         Design intent: backfill this in end_procedure AST, by means of
+         pushing it on the rootStack *)
+      IF tk = TraceKind.Composite THEN
+        (* root[0] := (int8_t) 0  *)
+        st := LLVM.LLVMBuildStore(builderIR, Zero(i8Type), v.lv);
+        LLVM.LLVMSetAlignment (st, 1);
+        PushRev(v.inProc.rootStack, v); (* Left-to-right. *)
+      END;
+      (* LLVM second bug: gcroot alignment is capped at pointer size. It
+      may not actually be an issue, but if it arises catch it here. *)
+      <* ASSERT v.align <= ptrBytes *>
     END;
   END AllocVar;
 
@@ -2209,10 +2280,11 @@ PROCEDURE declare_local
       END;
     ELSE (* We are in the body of the procedure. *)
       <* ASSERT proc = self.curProc *>
+      v.inProc := proc;
       self.allocVarInEntryBlock(v);
         (* ^Which flattens it from an inner block into the locals of
             the containing proc. *)
-      v.inProc := proc;
+
       (* Could be up-level if M3 decl is in an inner block. *)
       IF up_level THEN
         v.locDisplayIndex := self.curProc.uplevelRefdStack.size();
@@ -2265,8 +2337,8 @@ PROCEDURE declare_temp (self: U; s: ByteSize; a: Alignment; t: Type; m3t: TypeUI
     (* temps are always declared inside a begin_procedure. However we
        allocate them in the entry BB to avoid dominate all uses problems,
        also temps declared inside loops could overflow stack. *)
-    self.allocVarInEntryBlock(v);
     v.inProc := self.curProc;
+    self.allocVarInEntryBlock(v);
     RETURN v;
   END declare_temp;
 
@@ -2508,6 +2580,204 @@ PROCEDURE init_float (self: U;  ofs: ByteOffset;  READONLY f: Target.Float) =
   END init_float;
 
 (*------------------------------------------------------------ procedures ---*)
+VAR spCompiled := FALSE;
+
+PROCEDURE CompileSafepoint (self: U) =
+  CONST numFields = 16;
+  VAR
+    lock   : ARRAY [0 ..  2] OF LLVM.TypeRef;
+    nexus  : ARRAY [0 ..  5] OF LLVM.TypeRef;
+    cx     : ARRAY [0 .. 11] OF LLVM.TypeRef;
+    fldArr : TypeArrType; (* field type containers *)
+    fldRef : TypeRefType;
+  BEGIN
+    IF spCompiled
+      THEN RETURN;
+      ELSE spCompiled := TRUE;
+    END;
+(*
+/* This LLVM code generator emits code corresponding to the following C
+ * source (see WTHREAD/nthr.c). This procedure is to "compile" the
+ * following into llvm-ir that is used by EmitSafepointCheck.
+ */
+typedef enum { deferred, relief, vigilant, detached, joined } recce_t;
+
+typedef struct {
+    _Atomic uint32_t next_ticket;   /* next ticket to hand out */
+    _Atomic uint32_t now_serving;   /* ticket currently allowed to proceed */
+    _Atomic uint32_t cond_seq;      /* bumped on every signal/broadcast */
+} nsyn_lock_t;
+
+/* Thread Context */
+typedef struct {
+    _Atomic recce_t watch; /* condition           */
+    int32_t tid;           /* thread ID           */
+    nsyn_lock_t *outerSyn; /* mutex for joinSyn   */
+    nsyn_lock_t *joinSyn;  /* to wake on join     */
+
+    void (*fn)(void *);    /* thread routine      */
+    void *fn_arg;          /* routine's argument  */
+    void *self;            /* parameter           */
+    size_t stack_size;     /* parameter           */
+
+    void *stack_addr;      /* allocated           */
+    void *stack_ptr;       /* current             */
+    void *stack_top;       /* initial             */
+    void *tls_base;        /* thread-local vars   */
+
+} nthr_context_t;
+
+/* Thread nexus */
+typedef struct {
+    _Atomic int32_t safePoint;   /* 0 = run, 1 = Stop-the-world */
+    nsyn_lock_t     safeSyn;     /* safePoint mutex             */
+
+    nsyn_lock_t     parkSyn;     /* park mutex                  */
+    nsyn_lock_t     dangerSyn;   /* danger mutex                */
+
+    void            *forkList;   /* list of threads             */
+    nsyn_lock_t     forkSyn;     /* fork list mutex             */
+} nthr_nexus_t;
+
+extern nthr_nexus_t nthr_nexus;
+extern _Thread_local nthr_context_t *nthr_current;
+
+void nthr_park();
+*)
+    IF self.isWasm
+      THEN self.ptrAlign := 4;
+      ELSE self.ptrAlign := 8;   (* llvmByval := TRUE; *)
+    END;
+    i32Type  := LLVM.LLVMInt32Type ();
+    IF self.isWasm
+      THEN sizeT := i32Type;
+      ELSE sizeT := LLVM.LLVMInt64Type ();
+    END;
+    ptrType   := LLVM.LLVMPointerTypeInContext (globContext, 0);       (* opaque ptr *)
+    voidType  := LLVM.LLVMVoidType ();
+
+    nexusType := LLVM.LLVMStructCreateNamed (globContext, LT("struct.nthr_nexus_t"));
+    lockType  := LLVM.LLVMStructCreateNamed (globContext, LT("struct.nsyn_lock_t"));
+    ctxtType  := LLVM.LLVMStructCreateNamed (globContext, LT("struct.nthr_context_t"));
+
+    fldRef := NewTypeArr(fldArr,numFields);
+
+    lock    := ARRAY [0 .. 2] OF LLVM.TypeRef {i32Type, i32Type, i32Type};
+    FOR i := 0 TO NUMBER(lock) - 1 DO fldArr[i] := lock[i] END;
+    LLVM.LLVMStructSetBody (lockType, fldRef, NUMBER(lock), FALSE);
+
+    nexus    := ARRAY [0 .. 5] OF LLVM.TypeRef
+      {i32Type, lockType, lockType, lockType, ptrType, lockType};
+    FOR i := 0 TO NUMBER(nexus) - 1 DO fldArr[i] := nexus[i] END;
+    LLVM.LLVMStructSetBody (nexusType, fldRef, NUMBER(nexus), FALSE);
+
+    cx := ARRAY [0 .. 11] OF LLVM.TypeRef
+      {i32Type, i32Type, ptrType, ptrType, ptrType, ptrType, ptrType, sizeT,
+       ptrType, ptrType, ptrType, ptrType};
+    FOR i := 0 TO NUMBER(cx) - 1 DO fldArr[i] := cx[i] END;
+    LLVM.LLVMStructSetBody (ctxtType, fldRef, NUMBER(cx), FALSE);
+
+    (* no initializer => "external global" *)
+    nexusVar := LLVM.LLVMAddGlobal (modRef, nexusType, LT("nthr_nexus"));
+    LLVM.LLVMSetAlignment (nexusVar, self.ptrAlign);
+
+    currentVar := LLVM.LLVMAddGlobal (modRef, ptrType, LT("nthr_current"));
+    (* LLVM.LLVMSetInitializer (currentVar, LLVM.LLVMConstNull (ptrType)); *)
+    (* x86_64 executable: local-exec avoids a __tls_get_addr call (same as clang -fPIE).
+       Use LLVMGeneralDynamicTLSModel if the runtime ever lands in a shared object. *)
+    IF self.isWasm
+      THEN LLVM.LLVMSetThreadLocalMode (currentVar, TLM.GeneralDynamicTLSModel);
+      ELSE LLVM.LLVMSetThreadLocalMode (currentVar, TLM.LocalExecTLSModel);
+    END;
+    LLVM.LLVMSetAlignment (currentVar, self.ptrAlign);
+    (* optional, x86_64 PIC (verified in C): LLVMSetVisibility (nexusVar, LLVMHiddenVisibility)
+       gives a direct RIP-relative load of nthr_nexus instead of a GOT-indirect one. *)
+
+    (* no body => "declare void @nthr_park()"; deliberately NOT variadic *)
+    parkType := LLVM.LLVMFunctionType (voidType, NIL, 0, FALSE);
+    parkFunc := LLVM.LLVMAddFunction (modRef, LT("nthr_park"), parkType);
+  END CompileSafepoint;
+
+PROCEDURE EmitSafepointCheck (self : U) : LLVM.BasicBlockRef =
+  CONST Vigilant = 2;
+  VAR
+    cur  := LLVM.LLVMGetInsertBlock (builderIR);
+    park := NewBlockAfter (cur,  "park");
+    cont := NewBlockAfter (park, "flow");
+    chk  : LLVM.BasicBlockRef;
+    watch, sp, c0, c1 : LLVM.ValueRef;
+
+  PROCEDURE I32 (v: INTEGER): LLVM.ValueRef =
+    BEGIN
+      RETURN LLVM.LLVMConstInt (i32Type, VAL (v, LONGINT), FALSE)
+    END I32;
+
+  PROCEDURE NewBlockAfter (after: LLVM.BasicBlockRef;
+                           name: TEXT): LLVM.BasicBlockRef =
+    VAR bb := LLVM.LLVMAppendBasicBlock
+                (LLVM.LLVMGetBasicBlockParent (after), LT(name));
+    BEGIN
+      LLVM.LLVMMoveBasicBlockAfter (bb, after);   (* layout: cur, park, cont *)
+      RETURN bb;
+    END NewBlockAfter;
+
+  (* %safePoint = load atomic i32, ptr @nthr_nexus acquire   (field 0 => same address) *)
+  PROCEDURE LoadSafePoint (): LLVM.ValueRef =
+    VAR s := LLVM.LLVMBuildLoad2 (builderIR, i32Type, nexusVar, LT("safePoint"));
+    BEGIN
+      LLVM.LLVMSetOrdering (s, GetOrder(MemoryOrder.Acquire));
+      LLVM.LLVMSetAlignment (s, self.ptrAlign);
+      RETURN s;
+    END LoadSafePoint;
+
+(* %watch = load atomic i32, ptr (&nthr_current->watch) acquire *)
+PROCEDURE LoadWatch (): LLVM.ValueRef =
+    CONST numParams = 1;
+    VAR
+      fn : LLVM.ValueRef;
+      paramsArr : ValueArrType;
+      paramsRef : ValueRefType;
+      fnTy : LLVM.TypeRef;
+      tla, cur, wp, w: LLVM.ValueRef;
+    BEGIN
+
+      (* watch := atomic load (llvm.threadlocal.address.p0(nthr_current).watch, acquire) *)
+      fn := IntrinsicFunc(M3Intrinsic.m3tladdr, numParams, AdrTy);
+      paramsRef := NewValueArr(paramsArr,numParams);
+      paramsArr[0] := currentVar;
+      fnTy := LLVM.LLVMGetFunctionType(fn);
+      tla := LLVM.LLVMBuildCall2(builderIR, fnTy, fn, paramsRef,
+                                      numParams, LT("tla"));
+
+      cur := LLVM.LLVMBuildLoad2 (builderIR, ptrType, tla, LT("cur"));  (* nthr_current *)
+      wp  := LLVM.LLVMBuildStructGEP2 (builderIR, ctxtType, cur, 0, LT("watch.p"));
+      w   := LLVM.LLVMBuildLoad2 (builderIR, i32Type, wp, LT("watch"));
+
+      LLVM.LLVMSetOrdering (w, GetOrder(MemoryOrder.Acquire));
+      LLVM.LLVMSetAlignment (w, self.ptrAlign);   (* atomic loads need an explicit align *)
+      RETURN w;
+    END LoadWatch;
+
+  BEGIN (* EmitSafepointCheck *)
+    (* hot path = one atomic load + one branch; watch is read only when safePoint # 0 *)
+    chk := NewBlockAfter (cur, "chkWatch");
+    sp  := LoadSafePoint ();
+    c0  := LLVM.LLVMBuildICmp (builderIR, LLVM.IntPredicate.NE, sp, I32(0), LT("armed"));
+    EVAL LLVM.LLVMBuildCondBr (builderIR, c0, chk, cont);
+
+    LLVM.LLVMPositionBuilderAtEnd (builderIR, chk);
+    watch := LoadWatch ();
+    c1 := LLVM.LLVMBuildICmp (builderIR, LLVM.IntPredicate.SGE, watch, I32(Vigilant), LT("geVigilant"));
+    EVAL LLVM.LLVMBuildCondBr (builderIR, c1, park, cont);
+
+    LLVM.LLVMPositionBuilderAtEnd (builderIR, park);
+    EVAL LLVM.LLVMBuildCall2 (builderIR, parkType, parkFunc, NIL, 0, LT(""));
+    EVAL LLVM.LLVMBuildBr (builderIR, cont);
+
+    LLVM.LLVMPositionBuilderAtEnd (builderIR, cont);      (* caller continues here *)
+    RETURN cont;
+  END EmitSafepointCheck;
+
 
 PROCEDURE import_procedure (self: U;  n: Name;  n_params: INTEGER;
                             return_type: Type;  cc: CallingConvention;
@@ -2566,6 +2836,7 @@ PROCEDURE declare_procedure (self: U;  n: Name;  n_params: INTEGER;
     p.imported := FALSE;
     p.localStack := NEW(RefSeq.T).init();
     p.paramStack := NEW(RefSeq.T).init();
+    p.rootStack := NEW(RefSeq.T).init();
     p.uplevelRefdStack := NEW(RefSeq.T).init();
     p.cumUplevelRefdCt := 0; (* This is not cumlative yet. *)
     p.state := procState.decld;
@@ -2588,6 +2859,9 @@ PROCEDURE begin_procedure (self: U;  p: Proc) =
     arg : REFANY;
     paramNo : INTEGER;
   BEGIN
+    (* Compile safepoint declarations *)
+    CompileSafepoint (self);
+
     (* Declare this procedure and all its locals and parameters.*)
     proc := NARROW(p,LvProc);
 
@@ -2616,13 +2890,17 @@ PROCEDURE begin_procedure (self: U;  p: Proc) =
     (* set debug loc to nul here to run over prologue instructions *)
     DebugClearLoc(self);
 
-    (* Create the entry and second basic blocks. *)
+    (* Create the entry and prolog basic blocks. *)
     proc.entryBB := LLVM.LLVMAppendBasicBlockInContext
                       (globContext, self.curProc.lvProc,  LT("entry"));
     (* ^For stuff we generate: alloca's, display build, etc. *)
-    proc.secondBB := LLVM.LLVMAppendBasicBlockInContext
-                       (globContext, self.curProc.lvProc,  LT("second"));
-    (* ^For m3-coded operations. *)
+    proc.prologBB := LLVM.LLVMAppendBasicBlockInContext
+                       (globContext, self.curProc.lvProc,  LT("prolog"));
+    LLVM.LLVMPositionBuilderAtEnd(builderIR,proc.prologBB);
+    proc.bodyBB := EmitSafepointCheck(self);
+    (* ^Creates safepoint check in prologBB. The procedure body starts
+        in the returned block. Later, end_procedure inserts root zeroing
+        instructions into prologBB ahead of the safepoint check. *)
     LLVM.LLVMPositionBuilderAtEnd(builderIR,proc.entryBB);
     (* Allocate and store parameters to memory. *)
     paramNo := 0;
@@ -2693,7 +2971,7 @@ PROCEDURE begin_procedure (self: U;  p: Proc) =
        by LLVMReplaceAllUsesWith.  Also, it will be uniqued, so genuine uses
        could be replaced incorrectly. *)
 
-    LLVM.LLVMPositionBuilderAtEnd(builderIR,proc.secondBB);
+    LLVM.LLVMPositionBuilderAtEnd(builderIR,proc.bodyBB);
     (* ^This is where compiled-from-Modula3 code will be inserted. *)
     self.curLocalOwner := p;
     (* ^Until further notice, occurences of declare_local belong to p. *)
@@ -2806,6 +3084,7 @@ PROCEDURE EraseExtraneousInstr(self : U; proc : LvProc) =
   END EraseExtraneousInstr;
 *)
 
+
 PROCEDURE end_procedure (self: U;  p: Proc) =
 (* marks the end of the code for procedure 'p'.  Sets "current procedure"
    to NIL.  Implies an end_block.  *)
@@ -2817,6 +3096,10 @@ PROCEDURE end_procedure (self: U;  p: Proc) =
     newDisplayLv : LLVM.ValueRef;
     textName : TEXT;
     linkSize : CARDINAL;
+    numRoots : CARDINAL;
+    arg : REFANY;
+    root : LvVar;
+    rootLen : LLVM.ValueRef;
   BEGIN
     proc := NARROW(p,LvProc);
     <* ASSERT proc = self.curProc *>
@@ -2846,8 +3129,8 @@ PROCEDURE end_procedure (self: U;  p: Proc) =
     LLVM.LLVMInstructionEraseFromParent(proc.outgoingDisplayLv);
     (* Here, proc.outgoingDisplayLv is dead. *)
 
-    (* Give entry BB a terminating  unconditional branch to secondBB. *)
-    EVAL LLVM.LLVMBuildBr(builderIR, proc.secondBB);
+    (* Give entry BB a terminating  unconditional branch to prologBB. *)
+    EVAL LLVM.LLVMBuildBr(builderIR, proc.prologBB);
 
     LLVM.LLVMPositionBuilderAtEnd(builderIR, curBB);
     (* ^Back to the regular code insertion site. *)
@@ -2865,6 +3148,33 @@ PROCEDURE end_procedure (self: U;  p: Proc) =
           EVAL LLVM.LLVMBuildRetVoid(builderIR);
         ELSE
           EVAL LLVM.LLVMBuildRet(builderIR,LLVM.LLVMGetUndef(LLvmType(proc.returnType)));
+        END;
+      END;
+    END;
+
+    (* Below is the complement to AllocVar's gcroot intrinsic; firstly we need
+    to set the LLVM GC strategy if there were any roots; secondly we need to
+    initialise composte variables. Recall they were "marked" in AllocVar to
+    work-around a bug in LLVM. The same bug precludes initialisation there.
+    So now we are returning to that task: zero them out. *)
+    IF proc.gcStrategy THEN
+      LLVM.LLVMSetGC(proc.lvProc,LT("shadow-stack"));
+    
+      (* Initialise gc root variables - before the safepoint check *)
+      (* begin_procedure emitted that check into the prologue *)
+      numRoots := proc.rootStack.size();
+      IF numRoots > 0 THEN
+        LLVM.LLVMPositionBuilder(builderIR, proc.prologBB, LLVM.LLVMGetFirstInstruction(proc.prologBB));
+      END;
+      FOR i := 0 TO numRoots - 1 DO
+        arg := Get(proc.rootStack,i);
+        root := NARROW(arg,LvVar);
+        <* ASSERT root.varType # VarType.Global *>
+        IF root.varType # VarType.Param THEN
+          rootLen := LLVM.LLVMConstInt(i32Type, VAL(root.size,LONGINT), FALSE);
+          DoMemZero(root.lv, rootLen, root.align);
+        ELSE
+          <* ASSERT root.varType # VarType.Param *>
         END;
       END;
     END;
@@ -5479,7 +5789,7 @@ PROCEDURE pop_param (self: U;  t: MType) =
   END pop_param;
 
 PROCEDURE pop_struct
-  (self: U; t: TypeUID; s: ByteSize; <*UNUSED*> a: Alignment) =
+  (self: U; t: TypeUID; s: ByteSize; a: Alignment) =
   (* pop s0.A, it's a pointer to a structure occupying 's' bytes that's
     'a' byte aligned;  It is passed by value in M3, but llvm code passes
     the *address* of the structure, so we first make a copy here. *)
@@ -5496,7 +5806,7 @@ PROCEDURE pop_struct
      *)
     IF NOT llvmByval THEN
       (* Allocate a temp for the copy in the entry BB *)
-      copyRef := self.declare_temp (s, s, Type.Struct, t, TRUE);
+      copyRef := self.declare_temp (s, a, Type.Struct, t, TRUE);
       (* Generate the copy. *)
       len_lVal := LLVM.LLVMConstInt(IntPtrTy, VAL(s,LONGINT), TRUE);
       DoMemCopy(expr.lVal, copyRef.lv, len_lVal, align:=1, overlap:=FALSE);
@@ -6624,13 +6934,14 @@ PROCEDURE DebugProc(self : U; p : ProcDebug)
     M3DIB.LLVMMetadataReplaceAllUsesWith(
       TempTargetMetadata := procDIT,
       Replacement        := PTy);
-
+    p.diType := PTy;
     RETURN PTy;
   END DebugProc;
 
 PROCEDURE DebugObject(self : U; o : ObjectDebug) : MetadataRef =
   VAR
     heapObjectDIT,opaqueObjectDIT,ptrDIT,fieldDIT : MetadataRef;
+    realDIT : MetadataRef;
     inheritDIT,memberDINode : MetadataRef;
     (*              ^Not really a type.  It contains lots of other info about the member besides its type. *)
     paramsArr : REF ARRAY OF MetadataRef;
@@ -6639,7 +6950,7 @@ PROCEDURE DebugObject(self : U; o : ObjectDebug) : MetadataRef =
     debugObj,baseObj : BaseDebug;
     superObj : ObjectDebug;
     packedObj : PackedDebug;
-    className, uniqueId, typeName, fieldName : TEXT;
+    className, uniqueId, typeName, fieldName, replName : TEXT;
     min, count : TInt.Int;
   BEGIN
     uniqueId := M3IR.FormatUID(o.tUid);
@@ -6670,6 +6981,7 @@ PROCEDURE DebugObject(self : U; o : ObjectDebug) : MetadataRef =
        (*OUT*) paramsMetadata);
 
     typeName  := M3ID.ToText(o.typeName) & "__HeapObject";
+    replName  := typeName;
     heapObjectDIT := M3DIB.CreateReplaceableCompositeType (self.debugRef,
       Tag          := DC.DW_TAG_class_type,
       Name         := typeName,
@@ -6788,11 +7100,28 @@ PROCEDURE DebugObject(self : U; o : ObjectDebug) : MetadataRef =
       INC(nextMemberNo);
     END;
 
+    (* replace the composite type *)
+    realDIT := M3DIB.CreateClassType (self.debugRef,
+      Scope        := DebugScope(self,o),
+      Name         := replName, NameLen := Text.Length(replName),
+      File         := self.fileRef,  LineNumber := self.curLine,
+      SizeInBits   := VAL(o.objSize + ptrBits,uint64_t),
+      AlignInBits  := VAL(o.align,uint32_t),
+      OffsetInBits := 0L,  Flags := 0,
+      DerivedFrom  := NIL,
+      Elements     := paramsMetadata.Data, NumElements := nextMemberNo,
+      VTableHolder := NIL,  TemplateParamsNode := NIL,
+      UniqueIdentifier := uniqueId, UniqueIdentifierLen := Text.Length(uniqueId));
+
+    M3DIB.LLVMMetadataReplaceAllUsesWith (heapObjectDIT, realDIT);
+    heapObjectDIT := NIL;
+    o.objectType  := realDIT;
+(*
    M3DIB.LLVMReplaceArrays(self.debugRef,
       T        := ADR(heapObjectDIT),
       Elements := paramsMetadata.Data,
       NumElements := nextMemberNo);
-
+*)
     RETURN ptrDIT;
   END DebugObject;
 
@@ -6899,6 +7228,8 @@ PROCEDURE DebugRecord(self : U; r : RecordDebug) : MetadataRef =
     M3DIB.LLVMMetadataReplaceAllUsesWith(
       TempTargetMetadata := structDIT,
       Replacement        := resStructDIT);
+
+    r.diType := resStructDIT;
     RETURN resStructDIT;
   END DebugRecord;
 

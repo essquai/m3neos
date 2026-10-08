@@ -4207,6 +4207,16 @@ PROCEDURE LLVMIsMultithreaded() : Bool;
 
 (*===-- Operations on modules ---------------------------------------------===*)
 
+TYPE VerifierFailureAction = {
+    AbortProcessAction,
+    PrintMessageAction,
+    ReturnStatusAction
+};
+
+(* Verify that a module is valid *)
+PROCEDURE LLVMVerifyModule(M: ModuleRef; Action: VerifierFailureAction;
+                          OutMessage: char_star_star) : BOOLEAN;
+
 (** Writes a module to the specified path. Returns 0 on success. *)
 PROCEDURE LLVMWriteBitcodeToFile(M: ModuleRef; Path: const_char_star): int;
 

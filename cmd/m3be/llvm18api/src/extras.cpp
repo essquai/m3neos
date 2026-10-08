@@ -74,6 +74,7 @@ void LLVMReplaceArrays(LLVMDIBuilderRef Builder, LLVMMetadataRef *T,
   auto Elts =
       unwrap(Builder)->getOrCreateArray({unwrap(Elements), NumElements});
   unwrap(Builder)->replaceArrays(CT, Elts);
+  *T = wrap(CT);
 }
 
 #ifdef __cplusplus

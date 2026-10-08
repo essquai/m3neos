@@ -11,7 +11,7 @@ IMPORT LLVM_WASM, Version;
 CONST DefaultBinOutFileName = "m3test.ll";
 CONST DefaultExecutableName = "m3llwasm";
 
-CONST MaxTargets = 43;
+CONST MaxTargets = 3;
 
 TYPE
   (*
@@ -40,49 +40,9 @@ TYPE
 
 VAR
  targetArr := ArrDT{
-    DT{"AMD64_LINUX",        "x86_64-pc-linux-gnu",  "e-m:e-p:64:64-i64:64-f80:128-n8:16:32:64-S128",TRUE},
-    DT{"ALPHA32_VMS",        "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",FALSE},
-    DT{"ALPHA64_VMS",        "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",FALSE},
-    DT{"ALPHA_LINUX" ,       "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",FALSE},
-    DT{"ALPHA_OPENBSD",      "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",FALSE},
-    DT{"AMD64_DARWIN",       "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",FALSE},
-    DT{"AMD64_FREEBSD",      "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",FALSE},
-    DT{"AMD64_MINGW",        "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",FALSE},
-    DT{"AMD64_NETBSD",       "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",FALSE},
-    DT{"AMD64_NT",           "x86_64-pc-windows-msvc", "e-m:w-i64:64-f80:128-n8:16:32:64-S128",TRUE},
-    DT{"AMD64_OPENBSD",      "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",FALSE},
-    DT{"AMD64_SOLARIS",      "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",FALSE},
-    DT{"ARM64_DARWIN",       "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",FALSE},
-    DT{"ARM64_LINUX",        "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",FALSE},
-    DT{"ARMEL_LINUX",        "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",FALSE},
-    DT{"ARM_LINUX",          "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",FALSE},
-    DT{"I386_CYGWIN",        "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",FALSE},
-    DT{"I386_DARWIN",        "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",FALSE},
-    DT{"I386_FREEBSD",       "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",FALSE},
-    DT{"I386_INTERIX",       "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",FALSE},
-    DT{"I386_LINUX",         "i686-pc-linux-gnu",    "e-m:e-p:32:32-i32:32-i64:32:64-f80:128-n8:16:32:64-S128",TRUE},
-    DT{"I386_MINGW",         "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",FALSE},
-    DT{"I386_NETBSD",        "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",FALSE},
-    DT{"I386_NT",            "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",TRUE},
-    DT{"I386_OPENBSD",       "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",FALSE},
-    DT{"I386_SOLARIS",       "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",FALSE},
-    DT{"IA64_LINUX",         "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",FALSE},
-    DT{"MIPS64EL_OPENBSD",   "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",FALSE},
-    DT{"MIPS64_OPENBSD",     "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",FALSE},
-    DT{"PA32_HPUX",          "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",FALSE},
-    DT{"PA64_HPUX",          "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",FALSE},
-    DT{"PPC32_OPENBSD",      "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",FALSE},
-    DT{"PPC64_DARWIN",       "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",FALSE},
-    DT{"PPC_DARWIN",         "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",FALSE},
-    DT{"PPC_LINUX",          "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",FALSE},
-    DT{"RISCV64_LINUX",      "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",FALSE},
-    DT{"SOLgnu",             "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",FALSE},
-    DT{"SOLsun",             "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",FALSE},
-    DT{"SPARC32_LINUX" ,     "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",FALSE},
-    DT{"SPARC32_SOLARIS",    "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",FALSE},
-    DT{"SPARC64_LINUX",      "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",FALSE},
-    DT{"SPARC64_OPENBSD",    "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",FALSE},
-    DT{"SPARC64_SOLARIS",    "i686-pc-windows-msvc", "e-m:x-p:32:32-i64:64-f80:32-n8:16:32-a:0:32-S32",FALSE}
+    DT{"x86_64",     "x86_64-pc-linux-gnu",  "e-m:e-p:64:64-i64:64-f80:128-n8:16:32:64-S128",TRUE},
+    DT{"wasm32",     "wasm32-unknown-wasi",  "e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-n32:64-S128-ni:1:10:20",TRUE},
+    DT{"CUR_X86_64", "x86_64-pc-linux-gnu",  "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128",FALSE}
     };
 
 VAR GExecutableName: TEXT := DefaultExecutableName;

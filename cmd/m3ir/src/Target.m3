@@ -33,6 +33,7 @@ TYPE
     SPARC64_SOLARIS,
     I386_SOLARIS,
     AMD64_SOLARIS,
+    WASM32,
     Other
   };
 
@@ -52,7 +53,8 @@ CONST
     "SPARC32_SOLARIS",
     "SPARC64_SOLARIS",
     "I386_SOLARIS",
-    "AMD64_SOLARIS"
+    "AMD64_SOLARIS",
+    "WASM32"
   };
 
 VAR (*CONST*)
@@ -183,7 +185,7 @@ PROCEDURE Init (system: TEXT; in_OS_name: TEXT; backend_mode: M3BackendMode_t): 
 	IF (TextUtils.StartsWith(system, "ALPHA") OR TextUtils.Contains(system, "64"))
 		AND NOT TextUtils.Contains(system, "32") THEN (* possibly IA64, Alpha *)
       Init64();
-    ELSIF backend_mode # M3BackendMode_t.C THEN
+    ELSIF backend_mode # M3BackendMode_t.C AND NOT TextUtils.Contains(system, "WASM") THEN
       (* Change only alignment.  Size is always 64:
        * Aligning these types to 32 is incorrect on many but not all 32bit targets.
        * C backend cannot portably reduce alignment but it can portably increase
