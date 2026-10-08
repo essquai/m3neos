@@ -737,6 +737,7 @@ VAR
 
   nexusVar   : LLVM.ValueRef; (* nthr_nexus_t nthr_nexus *)
   currentVar : LLVM.ValueRef; (* extern _Thread_local nthr_context_t *nthr_current *)
+  gcchainVar : LLVM.ValueRef; (* extern _Thread_local void *llvm_gc_root_chain; *)
   parkType   : LLVM.TypeRef;
   parkFunc   : LLVM.ValueRef; (* void nthr_park() *)
 
@@ -2587,7 +2588,7 @@ PROCEDURE CompileSafepoint (self: U) =
   VAR
     lock   : ARRAY [0 ..  2] OF LLVM.TypeRef;
     nexus  : ARRAY [0 ..  5] OF LLVM.TypeRef;
-    cx     : ARRAY [0 .. 11] OF LLVM.TypeRef;
+    cx     : ARRAY [0 .. 12] OF LLVM.TypeRef;
     fldArr : TypeArrType; (* field type containers *)
     fldRef : TypeRefType;
   BEGIN
@@ -2624,6 +2625,7 @@ typedef struct {
     void *stack_ptr;       /* current             */
     void *stack_top;       /* initial             */
     void *tls_base;        /* thread-local vars   */
+    void *stack_chain;     /* gc root chain       */
 
 } nthr_context_t;
 
@@ -2641,6 +2643,8 @@ typedef struct {
 
 extern nthr_nexus_t nthr_nexus;
 extern _Thread_local nthr_context_t *nthr_current;
+extern _Thread_local void *llvm_gc_root_chain;
+/* make llvm.gcroot thread safe ^*/
 
 void nthr_park();
 *)
@@ -2671,9 +2675,9 @@ void nthr_park();
     FOR i := 0 TO NUMBER(nexus) - 1 DO fldArr[i] := nexus[i] END;
     LLVM.LLVMStructSetBody (nexusType, fldRef, NUMBER(nexus), FALSE);
 
-    cx := ARRAY [0 .. 11] OF LLVM.TypeRef
+    cx := ARRAY [0 .. 12] OF LLVM.TypeRef
       {i32Type, i32Type, ptrType, ptrType, ptrType, ptrType, ptrType, sizeT,
-       ptrType, ptrType, ptrType, ptrType};
+       ptrType, ptrType, ptrType, ptrType, ptrType};
     FOR i := 0 TO NUMBER(cx) - 1 DO fldArr[i] := cx[i] END;
     LLVM.LLVMStructSetBody (ctxtType, fldRef, NUMBER(cx), FALSE);
 
@@ -2687,11 +2691,22 @@ void nthr_park();
        Use LLVMGeneralDynamicTLSModel if the runtime ever lands in a shared object. *)
     IF self.isWasm
       THEN LLVM.LLVMSetThreadLocalMode (currentVar, TLM.GeneralDynamicTLSModel);
-      ELSE LLVM.LLVMSetThreadLocalMode (currentVar, TLM.LocalExecTLSModel);
+      (*ELSE LLVM.LLVMSetThreadLocalMode (currentVar, TLM.LocalExecTLSModel);*)
+      ELSE LLVM.LLVMSetThreadLocalMode (currentVar, TLM.GeneralDynamicTLSModel);
     END;
     LLVM.LLVMSetAlignment (currentVar, self.ptrAlign);
     (* optional, x86_64 PIC (verified in C): LLVMSetVisibility (nexusVar, LLVMHiddenVisibility)
        gives a direct RIP-relative load of nthr_nexus instead of a GOT-indirect one. *)
+
+    (* make llvm.gcroot thread-safe *)
+    gcchainVar := LLVM.LLVMAddGlobal (modRef, ptrType, LT("llvm_gc_root_chain"));
+    IF self.isWasm
+      THEN LLVM.LLVMSetThreadLocalMode (gcchainVar, TLM.GeneralDynamicTLSModel);
+      (*ELSE LLVM.LLVMSetThreadLocalMode (gcchainVar, TLM.LocalExecTLSModel);*)
+      ELSE LLVM.LLVMSetThreadLocalMode (gcchainVar, TLM.GeneralDynamicTLSModel);
+    END;
+    LLVM.LLVMSetAlignment (gcchainVar, self.ptrAlign);
+
 
     (* no body => "declare void @nthr_park()"; deliberately NOT variadic *)
     parkType := LLVM.LLVMFunctionType (voidType, NIL, 0, FALSE);
@@ -3159,6 +3174,7 @@ PROCEDURE end_procedure (self: U;  p: Proc) =
     So now we are returning to that task: zero them out. *)
     IF proc.gcStrategy THEN
       LLVM.LLVMSetGC(proc.lvProc,LT("shadow-stack"));
+      <* ASSERT LLVM.LLVMIsThreadLocal(LLVM.LLVMGetNamedGlobal(modRef, LT("llvm_gc_root_chain"))) *>
     
       (* Initialise gc root variables - before the safepoint check *)
       (* begin_procedure emitted that check into the prologue *)
@@ -4046,7 +4062,7 @@ PROCEDURE MinMax (self: U;  t: ZType; doMin : BOOLEAN) =
       IF doMin THEN m3id := M3Intrinsic.m3fmin;
       ELSE          m3id := M3Intrinsic.m3fmax; END;
     END;
-    fn := IntrinsicFunc(m3id, numParams, ty, ty);
+    fn := IntrinsicFunc(m3id, 1(*numParams*), ty);
     fnTy := LLVM.LLVMGetFunctionType(fn);
     res := LLVM.LLVMBuildCall2(builderIR, fnTy, fn, paramsRef,
                                numParams, LT("minmax"));
