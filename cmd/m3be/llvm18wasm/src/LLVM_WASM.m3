@@ -1430,7 +1430,7 @@ PROCEDURE DumpLLVMIR(<*UNUSED*> self : U; BitcodeFileName, AsmFileName: TEXT) =
       IF msg # NIL THEN
         LLVM.LLVMDisposeMessage(msg^);
       END;
-      (* RETURN; *)
+      RETURN;
     END;
     (* Write Assembly format 1st, in case of obscure failures during write. *)
     IF AsmFileName # NIL THEN
@@ -2591,6 +2591,9 @@ PROCEDURE CompileSafepoint (self: U) =
     cx     : ARRAY [0 .. 12] OF LLVM.TypeRef;
     fldArr : TypeArrType; (* field type containers *)
     fldRef : TypeRefType;
+    usedArr : ValueArrType;
+    usedRef : ValueRefType;
+    usedVar : LLVM.ValueRef;
   BEGIN
     IF spCompiled
       THEN RETURN;
@@ -2634,8 +2637,9 @@ typedef struct {
     _Atomic int32_t safePoint;   /* 0 = run, 1 = Stop-the-world */
     nsyn_lock_t     safeSyn;     /* safePoint mutex             */
 
-    nsyn_lock_t     parkSyn;     /* park mutex                  */
-    nsyn_lock_t     dangerSyn;   /* danger mutex                */
+    nsyn_lock_t     watchSyn;    /* thread watch mutex          */
+    _Atomic int32_t parked;      /* threads inside nthr_park    */
+                                 /* tested in SuspendOthers     */
 
     void            *forkList;   /* list of threads             */
     nsyn_lock_t     forkSyn;     /* fork list mutex             */
@@ -2671,7 +2675,7 @@ void nthr_park();
     LLVM.LLVMStructSetBody (lockType, fldRef, NUMBER(lock), FALSE);
 
     nexus    := ARRAY [0 .. 5] OF LLVM.TypeRef
-      {i32Type, lockType, lockType, lockType, ptrType, lockType};
+      {i32Type, lockType, lockType, i32Type, ptrType, lockType};
     FOR i := 0 TO NUMBER(nexus) - 1 DO fldArr[i] := nexus[i] END;
     LLVM.LLVMStructSetBody (nexusType, fldRef, NUMBER(nexus), FALSE);
 
@@ -2706,15 +2710,30 @@ void nthr_park();
       ELSE LLVM.LLVMSetThreadLocalMode (gcchainVar, TLM.GeneralDynamicTLSModel);
     END;
     LLVM.LLVMSetAlignment (gcchainVar, self.ptrAlign);
-
+    (* pin the chain: opt would otherwise delete the unused thread_local declaration *)
+    usedRef := NewValueArr (usedArr, 1);
+    usedArr[0] := gcchainVar;
+    usedVar := LLVM.LLVMAddGlobal (modRef, LLVM.LLVMArrayType (ptrType, 1), LT("llvm.compiler.used"));
+    LLVM.LLVMSetInitializer (usedVar, LLVM.LLVMConstArray (ptrType, usedRef, 1));
+    LLVM.LLVMSetLinkage     (usedVar, LLVM.Linkage.Appending);
+    LLVM.LLVMSetSection     (usedVar, LT("llvm.metadata"));
 
     (* no body => "declare void @nthr_park()"; deliberately NOT variadic *)
     parkType := LLVM.LLVMFunctionType (voidType, NIL, 0, FALSE);
     parkFunc := LLVM.LLVMAddFunction (modRef, LT("nthr_park"), parkType);
   END CompileSafepoint;
 
+PROCEDURE NewBlockAfter (after: LLVM.BasicBlockRef;
+                         name: TEXT): LLVM.BasicBlockRef =
+  VAR bb := LLVM.LLVMAppendBasicBlock
+              (LLVM.LLVMGetBasicBlockParent (after), LT(name));
+  BEGIN
+    LLVM.LLVMMoveBasicBlockAfter (bb, after);   (* layout: cur, park, cont *)
+    RETURN bb;
+  END NewBlockAfter;
+
 PROCEDURE EmitSafepointCheck (self : U) : LLVM.BasicBlockRef =
-  CONST Vigilant = 2;
+  CONST Vigilant = 2; (* this changes if the watch enum does *)
   VAR
     cur  := LLVM.LLVMGetInsertBlock (builderIR);
     park := NewBlockAfter (cur,  "park");
@@ -2726,15 +2745,6 @@ PROCEDURE EmitSafepointCheck (self : U) : LLVM.BasicBlockRef =
     BEGIN
       RETURN LLVM.LLVMConstInt (i32Type, VAL (v, LONGINT), FALSE)
     END I32;
-
-  PROCEDURE NewBlockAfter (after: LLVM.BasicBlockRef;
-                           name: TEXT): LLVM.BasicBlockRef =
-    VAR bb := LLVM.LLVMAppendBasicBlock
-                (LLVM.LLVMGetBasicBlockParent (after), LT(name));
-    BEGIN
-      LLVM.LLVMMoveBasicBlockAfter (bb, after);   (* layout: cur, park, cont *)
-      RETURN bb;
-    END NewBlockAfter;
 
   (* %safePoint = load atomic i32, ptr @nthr_nexus acquire   (field 0 => same address) *)
   PROCEDURE LoadSafePoint (): LLVM.ValueRef =
@@ -2933,6 +2943,7 @@ PROCEDURE begin_procedure (self: U;  p: Proc) =
                    m3t:=UID_ADDR, in_memory:=TRUE, up_level:=FALSE,
                    exported:=FALSE,inited:=FALSE, frequency:=M3IR.Maybe,
                    varType:=VarType.Local);
+      memVar.inProc := param.inProc;
       self.allocVar (memVar); (* memVar.lv is ptr *)
       (* ^This will be the first alloca of the proc, so debugger can find it
          at fixed offset. *)
@@ -2952,9 +2963,15 @@ PROCEDURE begin_procedure (self: U;  p: Proc) =
       IF param.type # Type.Struct THEN
 
         memVar
-          := NewVar (self,param.name,ptrBytes,ptrBytes,
+            := NewVar (self, param.name, size:=param.size, align:=param.align,
+                       type:=Type.Addr, isConst:=TRUE, m3t:=param.m3t,
+                       in_memory:=TRUE, up_level:=FALSE, exported:=FALSE,
+                       inited:=FALSE, frequency:=M3IR.Maybe,
+                       varType:=VarType.Local);
+(*          := NewVar (self,param.name,ptrBytes,ptrBytes,
                      Type.Addr, TRUE,UID_ADDR,TRUE,FALSE,FALSE,FALSE,M3IR.Maybe,
-                     VarType.Local );
+                     VarType.Local ); *)
+        memVar.inProc := param.inProc;
         memVar.lvType := param.lvType;
         self.allocVar (memVar); (* memVar.lv is param.lvType* *)
         (* build the store for the parameter *)
@@ -3309,6 +3326,19 @@ PROCEDURE set_label (self: U;  lab: Label;  barrier: BOOLEAN) =
     LLVM.LLVMPositionBuilderAtEnd(builderIR,label.labBB);
   END set_label;
 
+PROCEDURE BackEdgeBlock (self: U; dest: LLVM.BasicBlockRef): LLVM.BasicBlockRef =
+  VAR saved := LLVM.LLVMGetInsertBlock (builderIR);
+      edge  := NewBlockAfter (saved, "edge");
+      flow  : LLVM.BasicBlockRef;
+  BEGIN
+    LLVM.LLVMPositionBuilderAtEnd (builderIR, edge);
+    flow := EmitSafepointCheck (self);                (* terminates edge *)
+    LLVM.LLVMPositionBuilderAtEnd (builderIR, flow);  (* explicit, in case it isn't left there *)
+    EVAL LLVM.LLVMBuildBr (builderIR, dest);
+    LLVM.LLVMPositionBuilderAtEnd (builderIR, saved); (* caller's block unchanged *)
+    RETURN edge
+  END BackEdgeBlock;
+
 PROCEDURE jump (self: U; lab: Label) =
   VAR
     labRef : REFANY;
@@ -3331,8 +3361,11 @@ PROCEDURE jump (self: U; lab: Label) =
     (* add the branch to our label *)
     label.branchList.addlo(branch);
     IF label.labBB # NIL THEN
-      (* must have seen the label at some point so insert the branch *)
-      EVAL LLVM.LLVMBuildBr(builderIR,label.labBB);
+      IF label.set THEN
+        EVAL LLVM.LLVMBuildBr (builderIR, BackEdgeBlock (self, label.labBB));
+      ELSE
+        EVAL LLVM.LLVMBuildBr (builderIR, label.labBB);
+      END;
     END;
     (* else the branches will be fixed up in set_label *)
   END jump;
@@ -3341,6 +3374,7 @@ PROCEDURE BuildCmp(self: U; a,b : LLVM.ValueRef; t: ZType; op : CompareOp; l: La
   VAR
     cmpVal : LLVM.ValueRef;
     label : LabelObj;
+    target : LLVM.BasicBlockRef;
   BEGIN
     cmpVal := CompareVal(a,b,op,t);
 
@@ -3348,12 +3382,9 @@ PROCEDURE BuildCmp(self: U; a,b : LLVM.ValueRef; t: ZType; op : CompareOp; l: La
 
     label.cmpInstr := cmpVal;
     label.elseBB := LLVM.LLVMAppendBasicBlock(self.curProc.lvProc, LT("else_" & ItoT(l)));
-    EVAL LLVM.LLVMBuildCondBr(builderIR,cmpVal,label.labBB, label.elseBB);
-    (* if mdbuilder::createBranchWeights is an api and condbr is extended to
-        have weights as the last parm then could use frequency to do this
-        weights := LLVM.LLVMCreateBranchWeights(f, Frequency.Always - f);
-        EVAL LLVM.LLVMBuildCondBr(builderIR,cmpVal,label.labBB,label.elseBB,weights);
-    *)
+    target := label.labBB;
+    IF label.set THEN target := BackEdgeBlock (self, label.labBB) END;
+    EVAL LLVM.LLVMBuildCondBr (builderIR, cmpVal, target, label.elseBB);
     LLVM.LLVMPositionBuilderAtEnd(builderIR,label.elseBB);
   END BuildCmp;
 
