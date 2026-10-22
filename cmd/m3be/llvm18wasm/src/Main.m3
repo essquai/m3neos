@@ -41,7 +41,7 @@ TYPE
 VAR
  targetArr := ArrDT{
     DT{"x86_64",     "x86_64-pc-linux-gnu",  "e-m:e-p:64:64-i64:64-f80:128-n8:16:32:64-S128",TRUE},
-    DT{"wasm32",     "wasm32-unknown-wasi",  "e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-n32:64-S128-ni:1:10:20",TRUE},
+    DT{"wasm32",     "wasm32-wasi-threads",  "e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-n32:64-S128-ni:1:10:20",TRUE},
     DT{"CUR_X86_64", "x86_64-pc-linux-gnu",  "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128",FALSE}
     };
 

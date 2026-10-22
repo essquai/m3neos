@@ -11,7 +11,7 @@ UNSAFE MODULE LLVM_WASM;
 IMPORT Ctypes;
 IMPORT FileRd;
 IMPORT IntRefTbl;
-IMPORT IO, Fmt; (* debug this module *)
+IMPORT IO; (* debug this module *)
 IMPORT M3toC;
 IMPORT MD5;
 IMPORT Pathname;
@@ -2584,11 +2584,11 @@ PROCEDURE init_float (self: U;  ofs: ByteOffset;  READONLY f: Target.Float) =
 VAR spCompiled := FALSE;
 
 PROCEDURE CompileSafepoint (self: U) =
-  CONST numFields = 16;
+  CONST numFields = 25;
   VAR
     lock   : ARRAY [0 ..  2] OF LLVM.TypeRef;
     nexus  : ARRAY [0 ..  5] OF LLVM.TypeRef;
-    cx     : ARRAY [0 .. 12] OF LLVM.TypeRef;
+    cx     : ARRAY [0 .. 20] OF LLVM.TypeRef;
     fldArr : TypeArrType; (* field type containers *)
     fldRef : TypeRefType;
     usedArr : ValueArrType;
@@ -2629,6 +2629,10 @@ typedef struct {
     void *stack_top;       /* initial             */
     void *tls_base;        /* thread-local vars   */
     void *stack_chain;     /* gc root chain       */
+
+    pthread_t p;           /* x86_64 "custom"     */
+    uintptr_t regs[NREGS]; /* x86_64 registers    */
+    _Atomic int32_t ended; /* reap ready          */
 
 } nthr_context_t;
 
@@ -2679,9 +2683,11 @@ void nthr_park();
     FOR i := 0 TO NUMBER(nexus) - 1 DO fldArr[i] := nexus[i] END;
     LLVM.LLVMStructSetBody (nexusType, fldRef, NUMBER(nexus), FALSE);
 
-    cx := ARRAY [0 .. 12] OF LLVM.TypeRef
+    cx := ARRAY [0 .. 20] OF LLVM.TypeRef
       {i32Type, i32Type, ptrType, ptrType, ptrType, ptrType, ptrType, sizeT,
-       ptrType, ptrType, ptrType, ptrType, ptrType};
+       ptrType, ptrType, ptrType, ptrType, ptrType, (* stack *)
+       ptrType, ptrType, ptrType, ptrType, ptrType, ptrType, ptrType, (* p, regs[6] *)
+       i32Type (* ended *)};
     FOR i := 0 TO NUMBER(cx) - 1 DO fldArr[i] := cx[i] END;
     LLVM.LLVMStructSetBody (ctxtType, fldRef, NUMBER(cx), FALSE);
 

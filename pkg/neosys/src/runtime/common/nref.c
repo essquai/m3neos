@@ -19,6 +19,7 @@
 #include <assert.h>
 #include <unistd.h>
 #include <stdalign.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <stdarg.h>
 #include <time.h>
@@ -768,9 +769,10 @@ static bool claim_more_memory(size_t numBytes, rctx_t *ctx) {
 bool arg_match(char *arg, char *name, long *value) {
   long v = 0;
   bool match = true, gathering = false;
+  bool suffix = false;
   char a, n;
 
-  for (int i = 0; match && arg[i]; i++) {
+  for (int i = 0; match && arg[i] && !suffix; i++) {
 
     // are we still matching the name?
     if (!gathering) {
@@ -789,6 +791,14 @@ bool arg_match(char *arg, char *name, long *value) {
       if (arg[i] >= '0' && arg[i] <= '9') {
         // add next least significant digit
         v = v * 10 + (arg[i]-'0');
+      } else if (arg[i] == 'k' || arg[i] == 'K') {
+        // kilobytes
+        v = v * 1024;
+        suffix = true;
+      } else if (arg[i] == 'm' || arg[i] == 'M') {
+        // megabytes
+        v = v * 1024 * 1024;
+        suffix = true;
       } else {
         // the value is not a valid decimal string
         match = false;
@@ -807,6 +817,7 @@ bool arg_match(char *arg, char *name, long *value) {
 void nref_prologue(int argc, char **argv) {
   char *argName[] = {"@M3virtual=", "@M3untraced=", "@M3traced="};
   long params[3];
+  bool ok;
   //
   // determine the pool sizes from the command line
   //
@@ -822,8 +833,13 @@ void nref_prologue(int argc, char **argv) {
 
   // initialize them
   nref_from_orbit();
-  nref_define(params[Untraced], Untraced);
-  nref_define(params[Traced], Traced);
+  ok = nref_define(params[Virtual], Virtual);
+  if (ok) ok = nref_define(params[Untraced], Untraced);
+  if (ok) ok = nref_define(params[Traced], Traced);
+  if (!ok) {
+    nref_diag_dump();
+    abort();
+  }
 }
 
 
@@ -855,7 +871,7 @@ void nref_from_orbit() {
 
   // the 'Virtual' nref doesn't have a pre-defined size
   // if this assumption wasn't made, it could though. option to consider
-  nref_define(0, Virtual);
+  // nref_define(0, Virtual);
 }
 
 // Pre-allocate a buffer for the given nref type. When numBytes
@@ -868,25 +884,47 @@ void nref_from_orbit() {
 bool nref_define(size_t numBytes, nref_t ref) {
     bool ok = true;
     void *addr = NULL;
-    assert(rctx[ref].segment.defined == false);
+    void *prevBrk;
+    size_t max = (size_t) 2 * 1024 * 1024 * 1024;
 
     nref_diag_stow("nref_define refType=%d numBytes=%ld", ref, numBytes);
 
     MALLOC_ACQUIRE(ref);
     rctx[ref].numBytes = numBytes;
-    if (ref == Virtual) {
-        assert(numBytes == 0);
-        nref_sbrk_init(addr, numBytes, &rctx[ref].segment);
-    } else {
-        assert(rctx[Virtual].segment.defined == true);
-        if (numBytes) {
+
+    ok = !rctx[ref].segment.defined;
+    if (numBytes > max) {
+      ok = false;
+      nref_diag_stow("nref_define refType=%d numBytes=%ld too large", ref, numBytes);
+    }
+    if (numBytes && ok) {
+      /* pull it from virtual, unless that's this case */
+      if (ref == Virtual) {
+        nref_lock_grab(&nref_sbrk_mutex);
+        prevBrk = sbrk(numBytes);
+        if (prevBrk != NREF_SBRK_FAIL) {
+            addr = prevBrk;
+        } else {
+          ok = false;
+          nref_diag_stow("nref_define refType=virtual numBytes=%ld fail", numBytes);
+        }
+        nref_lock_drop(&nref_sbrk_mutex);
+      } else {
+        if (rctx[Virtual].segment.defined == true) {
             // pull a segment out of virtual memory
             addr = nref_malloc(numBytes, Virtual);
-            if (!addr) ok = false;
+            if (!addr) {
+              ok = false;
+              nref_diag_stow("nref_define refType=%d numBytes=%ld malloc fail", ref, numBytes);
+            }
+        } else {
+          ok = false;
+          nref_diag_stow("nref_define refType=%d numBytes=%ld before virtual", ref, numBytes);
         }
-        if (ok) {
-            nref_sbrk_init(addr, numBytes, &rctx[ref].segment);
-        }
+      }
+    }
+    if (ok) {
+      nref_sbrk_init(addr, numBytes, &rctx[ref].segment);
     }
 
     // Start with a tiny dynamic region.

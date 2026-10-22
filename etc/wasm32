@@ -12,10 +12,10 @@
 %readonly TARGET = "AMD64_LINUX" % code generation target
 %readonly GNU_PLATFORM = "amd64-linux" % "cpu-os" string for GNU
 
-SYSTEM_CC = "cc -g -target wasm32" % C compiler
-SYSTEM_CXXC = "c++ -g -target wasm32" % C++ compiler
+SYSTEM_CC = "clang -g --target wasm32-wasip1-threads -pthread -matomics"
+SYSTEM_CXXC = "clang++ -g --target wasm32-wasip1-threads -pthread -matomics"
 
-readonly SYSTEM_ASM = "clang --target=wasm32" % Assembler
+readonly SYSTEM_ASM = "clang --target=wasm32-wasip1-threads" % Assembler
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %
@@ -57,6 +57,7 @@ SYSTEM_LD = SYSTEM_CXXXC
   & " -Wl,-rpath,\\$ORIGIN"
   & " -Wl,-rpath,\\$ORIGIN/../lib"
   & " -Wl,--warn-common"
+  & " -Wl,--shared-memory,--import-memory"
 
 include("Unix.common")
 

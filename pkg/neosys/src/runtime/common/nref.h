@@ -17,8 +17,9 @@
  * runtime initialization.
  *
  * The untraced and traced pool types can have predefined sizes by
- * providing @M3 runtime parameters in kilobytes. Their pre-defined
- & buffers are bootrapped allocations from Virtual.
+ * providing @M3 runtime parameters. Their pre-defined buffers are bootrapped
+ * allocations from Virtual. If the untraced/traced pool sizes are not
+ * pre-defined, they are unconstrained even if virtual is.
  *
  * The usual malloc, calloc, and free suspects are provided, but
  * with reference type as an additional function argument. No realloc.
