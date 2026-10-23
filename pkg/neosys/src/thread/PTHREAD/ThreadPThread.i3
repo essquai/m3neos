@@ -199,7 +199,8 @@ PROCEDURE Solaris(): BOOLEAN;
 <*EXTERNAL "ThreadPThread__IA64"*>
 PROCEDURE IA64 () : BOOLEAN;
 
-PROCEDURE AtForkPrepareOutsideFork(); (* called from C *)
+(* moved to RTThread.i3 module *)
+(* PROCEDURE AtForkPrepareOutsideFork(); *)(* called from C *)
 
 (* On the current thread, flush register windows to memory
  * on SPARC or IA64 and on IA64 return the current backing store pointer.

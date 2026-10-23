@@ -48,6 +48,10 @@ end
 %LD_PREF = " -fuse-ld=gold"
 LD_PREF = " -fuse-ld=lld"
 
+if not defined ("MAX_MEMORY")
+  MAX_MEMORY = "33554432"
+end
+
 SYSTEM_LD = SYSTEM_CXXXC
   & LD_PREF
   & " -Wl,-z,now"
@@ -57,7 +61,7 @@ SYSTEM_LD = SYSTEM_CXXXC
   & " -Wl,-rpath,\\$ORIGIN"
   & " -Wl,-rpath,\\$ORIGIN/../lib"
   & " -Wl,--warn-common"
-  & " -Wl,--shared-memory,--import-memory"
+  & " -Wl,--shared-memory,--import-memory,--max-memory=" & MAX_MEMORY
 
 include("Unix.common")
 

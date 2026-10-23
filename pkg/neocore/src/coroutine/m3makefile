@@ -1,0 +1,16 @@
+/* Copyright (C) 2018-2019 Intel Corporation */
+/* SPDX-License-Identifier: BSD-3-Clause */
+/* see the file COPYRIGHT-INTEL for more information */
+
+include_dir ("Common")
+
+% To have C bootstrap be equal across platforms, avoid
+% system specifics at this level (until build system can
+% make multiple passes, producing multiple bootstraps,
+% deduplicate them, and chose which to build later).
+%
+%if equal (TARGET, "AMD64_LINUX")
+  include_dir("UCONTEXT")
+%else
+%  include_dir("DUMMY")
+%end

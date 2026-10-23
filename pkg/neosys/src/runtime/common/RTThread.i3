@@ -9,6 +9,7 @@
 UNSAFE INTERFACE RTThread;
 
 IMPORT FloatMode, RTHeapRep;
+IMPORT RT0;
 
 (*--------------------------------------------- garbage collector support ---*)
 
@@ -54,6 +55,11 @@ PROCEDURE GetCurrentHandlers(): ADDRESS;
 
 PROCEDURE SetCurrentHandlers(h: ADDRESS);
 (* == WinBase.TlsSetValue(handlersIndex, h) *)
+
+(*------------------------------------------------------- thread handoffs ---*)
+
+PROCEDURE InitialThread(b : RT0.Binder);
+PROCEDURE AtForkPrepareOutsideFork();
 
 (*---------------------------------------------------------------------------*)
 

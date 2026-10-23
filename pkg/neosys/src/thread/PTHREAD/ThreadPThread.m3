@@ -6,7 +6,7 @@ UNSAFE MODULE ThreadPThread EXPORTS Thread, ThreadF, RTThread, Scheduler,
 SchedulerPosix, SchedulerPThread, RTOS, RTHooks, ThreadPThreadRT, ThreadPThread;
 
 IMPORT Cerrno, FloatMode, MutexRep, RTCollectorSRC, RTError, RTHeapRep, RTIO,
-       RTParams, RTPerfTool, RTProcess, ThreadEvent, Time,
+       RT0, RTLinker, RTParams, RTPerfTool, RTProcess, ThreadEvent, Time,
        Word, Usched, Uerror, Uexec;
 FROM Compiler IMPORT ThisFile, ThisLine;
 FROM Ctypes IMPORT int;
@@ -1574,6 +1574,12 @@ PROCEDURE Init ()=
     IF r # 0 THEN DieI(ThisLine(), r) END;
     InitWithStackBase(ADR(r)); (* not quite accurate but hopefully ok *)
   END Init;
+
+(* execute main - replaces RTLinker.AddUnit(Main_M3) at startup  *)
+PROCEDURE InitialThread(binder : RT0.Binder) =
+  BEGIN
+    RTLinker.AddUnit(binder);
+  END InitialThread;
 
 PROCEDURE PThreadLockMutex(mutex: pthread_mutex_t; line: INTEGER) =
   BEGIN

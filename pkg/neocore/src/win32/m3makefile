@@ -1,0 +1,79 @@
+% Copyright (C) 1994, Digital Equipment Corporation
+% All rights reserved.
+% See the file COPYRIGHT for a full description.
+%
+% Last modified on Wed Nov  9 15:14:29 PST 1994 by kalsow  
+
+%
+% copied from cm3cfg.common
+% Would prefer to update config files at start of build,
+% and maintain compatibility there, not here.
+%
+proc InternalCheckTargetOS(x) is
+  if defined("TARGET_OS")
+    return equal(TARGET_OS, x)
+  end
+  error("config file (or cm3 executable) must define TARGET_OS")
+  return FALSE
+end
+
+proc IsTargetCygwin()  is return InternalCheckTargetOS("CYGWIN") end
+proc IsTargetNT()      is return InternalCheckTargetOS("NT") end
+
+Interface  ("WinBaseTypes")
+Module     ("WinDef")
+Module     ("WinNT")
+
+Interface  ("WinError")
+Interface  ("WinBase")
+Interface  ("WinCon")
+Interface  ("WinGDI") % part of the implementation is portable
+Module     ("WinIoctl")
+Interface  ("WinNetwk")
+Interface  ("WinNLS")
+Module     ("WinReg")
+
+% WinSock clashes with Posix.
+% jay@solaris:~/cm3-boot-I386_SOLARISc-d5.11.0-20210326$ make
+% ./c_compiler -g -mt -xldscope=symbolic -xarch=pentium_pro -Kpic -c  WinSock.i3.c
+% /opt/solarisstudio12.4/bin/CC -g -mt -xldscope=symbolic -xarch=pentium_pro -Kpic -c WinSock.i3.c
+% "WinSock.i3.c", line 869: Error: Only one of a set of overloaded functions can be extern "C".
+if equal (OS_TYPE, "WIN32") or equal(TARGET, "NT386") or IsTargetNT()
+  Module   ("WinSock")
+end
+
+Interface  ("WinUser") % part of the implementation is portable
+Module     ("WinVer")
+Module     ("NB30")
+Interface  ("CDErr")
+Interface  ("CommDlg")
+Interface  ("TlHelp32")
+
+% New interfaces added March 2003 by darkov
+Interface  ("WinMidi")
+Interface  ("WinCommCtrl")
+if equal(WORD_SIZE, "32BITS") % temporary hack
+  Interface ("WinTabCon")
+  Interface ("WinListView")
+end
+Interface  ("WinImageList")
+
+if IsTargetNT() or IsTargetCygwin()
+
+c_source   ("WinNTc")
+implementation ("WinGDI") % part of the implementation is portable
+implementation ("WinUser") % part of the implementation is portable
+c_source   ("WinUserC")
+c_source   ("WinGDIc")
+
+% New interfaces added March 2003 by darkov
+if equal(WORD_SIZE, "32BITS") % temporary hack
+  implementation ("WinTabCon")
+  implementation ("WinListView")
+end
+implementation ("WinImageList")
+
+c_source("WinConstants")
+LibdExport("WinConstants" & { "WIN32" : ".obj", "POSIX" : ".o"  }{OS_TYPE})
+
+end

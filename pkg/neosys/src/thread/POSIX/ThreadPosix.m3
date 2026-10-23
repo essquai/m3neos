@@ -13,6 +13,7 @@
 UNSAFE MODULE ThreadPosix EXPORTS Thread, ThreadF, RTThread,
 Scheduler, SchedulerPosix, RTOS, RTHooks, ThreadPosix;
 
+IMPORT RT0;
 IMPORT Cerrno, Cstring, FloatMode, MutexRep, RTHeapRep, RTCollectorSRC,
        RTError, RTParams, RTPerfTool, RTProcedureSRC, RTProcess,
        RTIO, ThreadEvent, Time, Uexec, RuntimeError;
@@ -1475,6 +1476,18 @@ PROCEDURE AtForkChild() =
     multipleThreads := FALSE;
     AtForkParent();
   END AtForkChild;
+
+PROCEDURE InitialThread(binder : RT0.Binder) =
+  BEGIN
+    
+  END InitialThread;
+
+(* RTThread *)
+PROCEDURE AtForkPrepareOutsideFork() =
+  BEGIN
+    (* RTProcess Fork side-effects *)
+  END AtForkPrepareOutsideFork;
+
 
 (*------------------------------------------------------------- collector ---*)
 (* These procedures provide synchronization primitives for the allocator

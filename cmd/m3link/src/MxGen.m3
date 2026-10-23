@@ -102,6 +102,7 @@ CONST Prefix = ARRAY OF TEXT {
 "",
 "//correct, but void __cdecl RTLinker__AddUnit(void* (__cdecl*)(void));",
 "void __cdecl RTLinker__AddUnit(M3PROC);",
+"void __cdecl RTThread__InitialThread(M3PROC);",
 ""};
 
   VAR s: State;
@@ -355,6 +356,14 @@ PROCEDURE DumpUnits (h: TEXT; units: UnitInfo) =
 
 PROCEDURE GenerateCEntry (VAR s: State) =
 
+  PROCEDURE GenInitThread(ui: UnitInfo) =
+    BEGIN
+      WHILE (ui # NIL) DO
+        Out (s, "  RTThread__InitialThread ((M3PROC)", ui.binder, ");", EOL);
+        ui := ui.next;
+      END;
+    END GenInitThread;
+
   PROCEDURE GenAddUnits(ui: UnitInfo) =
     BEGIN
       WHILE (ui # NIL) DO
@@ -388,7 +397,7 @@ PROCEDURE GenerateCEntry (VAR s: State) =
 
     GenAddUnitImports(s.main_units);
     GenAddUnits(s.top_units);
-    GenAddUnits(s.main_units);
+    GenInitThread(s.main_units);
 
     Out (s, "  nref_memstat ();", EOL);
     Out (s, "  RTProcess__Exit (0);", EOL);
@@ -403,6 +412,7 @@ PROCEDURE GenerateCGEntry (VAR s: State) =
     main      : M3IR.Proc;
     nref_proc : M3IR.Proc;
     run_proc  : M3IR.Proc;
+    init_proc : M3IR.Proc;
     link_proc : M3IR.Proc;
     link_proc2: M3IR.Proc;
     stat_proc : M3IR.Proc;
@@ -418,6 +428,18 @@ PROCEDURE GenerateCGEntry (VAR s: State) =
     src_line  : INTEGER := 2;
     int_t     := Target.Integer.cg_type;
     addr_t    := Target.IRType.Addr;
+
+  PROCEDURE GenInitThread(ui: UnitInfo) =
+    BEGIN
+      WHILE (ui # NIL) DO
+        s.cg.set_source_line (src_line);  INC (src_line);
+        s.cg.start_call_direct (init_proc, 0, Target.IRType.Void);
+        s.cg.load_procedure (ui.cg_proc);
+        s.cg.pop_param (addr_t);
+        s.cg.call_direct (init_proc, Target.IRType.Void);
+        ui := ui.next;
+      END;
+    END GenInitThread;
 
   PROCEDURE GenAddUnits(ui: UnitInfo) =
     BEGIN
@@ -471,6 +493,11 @@ PROCEDURE GenerateCGEntry (VAR s: State) =
                                            (*typeid*) 0);
       EVAL DeclareParam (s, "m", addr_t);
     END;
+
+    init_proc := s.cg.import_procedure (M3ID.Add ("RTThread__InitialThread"), 1,
+                                       Target.IRType.Void, Target.DefaultCall,
+                                       (*typeid*) 0);
+    EVAL DeclareParam (s, "m", addr_t);
 
     stat_proc := s.cg.import_procedure (M3ID.Add ("nref_memstat"), 0,
                                        Target.IRType.Void, Target.DefaultCall,
@@ -571,7 +598,7 @@ PROCEDURE GenerateCGEntry (VAR s: State) =
 
     GenAddUnitImports(s.main_units);
     GenAddUnits(s.top_units);
-    GenAddUnits(s.main_units);
+    GenInitThread(s.main_units);
 
     (*  nref_memstat (); *)
     s.cg.set_source_line (src_line);  INC (src_line);

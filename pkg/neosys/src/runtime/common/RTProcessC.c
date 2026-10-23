@@ -115,7 +115,7 @@ RTProcess__RegisterForkHandlers(ForkHandler prepare,
 
 void
 __cdecl
-ThreadPThread__AtForkPrepareOutsideFork(void);
+RTThread__AtForkPrepareOutsideFork(void);
 
 INTEGER
 __cdecl
@@ -134,7 +134,7 @@ RTProcess__Fork(void)
   // on Solaris, because on Solaris they run with signals deferred/disbled
   // and fork therefore deadlocks with collector.
   // See https://github.com/illumos/illumos-gate/blob/b89fc615f42c703d6100c78de04791708d190e5e/usr/src/lib/libc/port/threads/scalls.c#L194
-  ThreadPThread__AtForkPrepareOutsideFork();
+  RTThread__AtForkPrepareOutsideFork();
 #endif
 
 #ifdef M3_USER_THREADS

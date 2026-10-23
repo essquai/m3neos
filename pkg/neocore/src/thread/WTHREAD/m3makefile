@@ -1,0 +1,14 @@
+interface      ("WThread")
+implementation ("WThread")
+
+Interface ("RTSync")
+
+h_source("nthr")
+c_source("nthr")
+if equal (TARGET, "wasm32")
+  s_source("nthr_wasi")
+  c_source("nthr_wasm32")
+else
+  s_source("nthr_sysv")
+  c_source("nthr_x86_64")
+end

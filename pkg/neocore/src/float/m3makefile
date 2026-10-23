@@ -1,0 +1,66 @@
+% Copyright (C) 1992, Digital Equipment Corporation
+% All rights reserved.
+% See the file COPYRIGHT for a full description.
+%
+% Last modified on Tue Jan 24 08:29:28 PST 1995 by kalsow
+%      modified on Fri May  7 17:38:10 PDT 1993 by muller
+%      modified on Wed May  5 11:53:58 PDT 1993 by mjordan
+
+_FloatPieces = {
+% Fill in TARGET otherwise we fallback to defaults below.
+%  "LINUXLIBC6"    : [ "IEEE", "IEEE-le", "C99" ],
+%  "AMD64_LINUX"   : [ "IEEE", "IEEE-le", "C99" ],
+%  "AMD64_FREEBSD" : [ "IEEE", "IEEE-le", "C99" ],
+%  "AMD64_DARWIN"   : [ "IEEE", "IEEE-le", "C99" ],
+%  "I386_DARWIN"   : [ "IEEE", "IEEE-le", "C99" ],
+%  "FreeBSD4"      : [ "IEEE", "IEEE-le", "C99" ]
+}
+
+% C99 might require Solaris 2.10 or newer for {I386,SPARC32,SPARC64}_SOLARIS.
+% AMD64_SOLARIS presumably requires Solaris 2.10.
+%
+% OSF/1 C99 support appears incomplete, but maybe can be built upon, later
+_FloatPiecesNoC99 = {
+    "NT",
+    "OSF",
+}
+
+_FloatPiecesC99 = {
+    "CYGWIN",
+    "DARWIN",
+    "FREEBSD",
+    "HPUX",
+    "INTERIX",
+    "LINUX",
+    "MINGW",
+    "NETBSD",
+    "OPENBSD",
+    "SOLARIS",
+    "VMS",
+}
+
+if _FloatPieces contains TARGET
+  % nothing
+else
+    _FloatPieces{TARGET} = [ ]
+    if (_FloatPiecesC99 contains TARGET_OS
+            and not _FloatPiecesNoC99 contains TARGET_OS
+            and not _FloatPiecesNoC99 contains TARGET)
+        _FloatPieces{TARGET} = ["C99"]
+    else
+        _FloatPieces{TARGET} = ["IEEE-default"]
+        _FloatPieces{"IEEE-default"} = 1 % indicator to m3-sys/m3tests
+    end
+    _FloatPieces{TARGET} =
+        { "LITTLE"  : [ _FloatPieces{TARGET}, "IEEE", "IEEE-le" ],
+          "BIG"     : [ _FloatPieces{TARGET}, "IEEE", "IEEE-be" ] }{TARGET_ENDIAN}
+end
+
+if not defined ("M3TESTS")
+  include_dir ("Common")
+  foreach f in _FloatPieces{TARGET}
+    include_dir (f)
+  end
+end
+
+ship_source ("m3makefile")
