@@ -2,16 +2,29 @@
 
 UNSAFE INTERFACE WThread;
 
-IMPORT Thread;
 IMPORT RTSync;
-FROM Ctypes  IMPORT void_star, int, const_char_star;
-FROM Cstddef IMPORT size_t;
+IMPORT FloatMode, RTHeapRep;
+FROM   Ctypes  IMPORT void_star, int, const_char_star;
+FROM   Cstddef IMPORT size_t;
 
 CONST NREGS = 6;
 
 TYPE
   Routine = PROCEDURE(arg: ADDRESS);
   Recce   = { deferred, relief, vigilant, detached, joined };
+
+  Axis = RECORD
+    threadSyn  : RTSync.T;                (* thread mutex *)
+    floatState : FloatMode.ThreadState;   (* per-thread floating point state *)
+    heapState  : RTHeapRep.ThreadState;   (* per-thread heap state *)
+    frame      : ADDRESS;                 (* exception handling support *)
+
+    slot       : INTEGER;                 (* an index *)
+    next_axis  : UNTRACED REF Axis;       (* nexus ring *)
+    prev_axis  : UNTRACED REF Axis;       (* nexus ring *)
+  END;
+
+
   Context = RECORD
     watch       : BITS 32 FOR Recce;  (* condition *)
     tid         : int;        (* thread ID         *)
@@ -20,7 +33,7 @@ TYPE
 
     fn          : Routine;    (* thread routine    *)
     fn_arg      : void_star;  (* routine argument  *)
-    self        : void_star;  (* parameter         *)
+    axis        : UNTRACED REF Axis;
     stack_size  : size_t;     (* parameter         *) 
 
     stack_addr  : void_star;  (* allocated         *)
@@ -33,6 +46,7 @@ TYPE
                               (* ^registers        *)
     ended       : int;        (* reap ready        *)
   END;
+  ptrContext = UNTRACED REF Context;
 
 
   (* Thread safepoint coordination is through nexus *)
@@ -43,7 +57,7 @@ TYPE
     watchSyn     : RTSync.T;
     parked       : int;
 
-    forkList     : Thread.T;
+    forkList     : ADDRESS;
     forkSyn      : RTSync.T;
   END;
 
@@ -51,16 +65,19 @@ TYPE
 VAR nexus : Nexus;
 
 <*EXTERNAL "nthr_create"*>
-PROCEDURE thread_create(VAR ctxt : Context; VAR ctxSyn : RTSync.T; stackSize: size_t; routine: Routine; arg: void_star; self : void_star): int;
+PROCEDURE thread_create(ctxt : ptrContext; VAR ctxSyn : RTSync.T; stackSize: size_t; routine: Routine; arg: void_star; self : void_star): int;
+
+<*EXTERNAL "nthr_lock"*>
+PROCEDURE thread_lock(VAR syn : RTSync.T; noPark : BOOLEAN := FALSE);
 
 <*EXTERNAL "nthr_vigil"*>
-PROCEDURE thread_vigil(VAR ctxt : Context) : Recce;
+PROCEDURE thread_vigil(ctxt : ptrContext) : Recce;
 
 <*EXTERNAL "nthr_self"*>
-PROCEDURE thread_self() : Thread.T;
+PROCEDURE thread_context() : ptrContext;
 
 <*EXTERNAL "nthr_default"*>
-PROCEDURE thread_default(VAR ctxt : Context; VAR ctxSyn : RTSync.T; self : void_star);
+PROCEDURE thread_default(ctxt : ptrContext; VAR ctxSyn : RTSync.T; self : void_star);
 
 <*EXTERNAL "nthr_arch_stack32"*>
 PROCEDURE thread_stack32();

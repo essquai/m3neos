@@ -140,7 +140,7 @@ BEGIN
                                      Target.DefaultCall, new, IR.NO_UID);
     IF new THEN
       EVAL IR.Declare_param (M3ID.NoID, Target.Word.size, Target.Word.align,
-                             Target.Word.cg_type, 0, in_memory := FALSE,
+                             Target.Word.cg_type, IR.NO_UID, in_memory := FALSE,
                              up_level := FALSE, f := IR.Never);
     END;
   END;
@@ -179,12 +179,12 @@ BEGIN
                                      Target.DefaultCall, new, IR.NO_UID);
     IF new THEN
       EVAL IR.Declare_param (M3ID.Add ("jmpbuf"), Target.Address.size,
-                             Target.Address.align, IR.Type.Addr, 0,
+                             Target.Address.align, IR.Type.Addr, IR.NO_UID,
                              in_memory := FALSE, up_level := FALSE,
                              f := IR.Never);
       IF Target.Sigsetjmp THEN
         EVAL IR.Declare_param (M3ID.Add ("save_mask"), Target.Int32.size, (* int *)
-                               Target.Int32.align, IR.Type.Int32, 0,
+                               Target.Int32.align, IR.Type.Int32, IR.NO_UID,
                                in_memory := FALSE, up_level := FALSE,
                                f := IR.Never);
       END;

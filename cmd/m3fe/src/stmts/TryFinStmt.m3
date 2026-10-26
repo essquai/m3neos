@@ -131,7 +131,7 @@ PROCEDURE Compile1 (p: P): Stmt.Outcomes =
   BEGIN
     (* declare and initialize the info record *)
     info := IR.Declare_local (M3ID.NoID, Target.Address.size, Target.Address.align,
-                              IR.Type.Addr, 0, in_memory := TRUE,
+                              IR.Type.Addr, IR.NO_UID, in_memory := TRUE,
                               up_level := FALSE, f := IR.Never);
     IR.Load_nil ();
     IR.Store_addr (info, M3RT.EA_exception);
@@ -218,7 +218,7 @@ PROCEDURE Compile2 (p: P): Stmt.Outcomes =
 
     (* declare and initialize the info record *)
     frame := IR.Declare_local (M3ID.NoID, M3RT.EF2_SIZE, Target.Address.align,
-                               IR.Type.Struct, 0, in_memory := TRUE,
+                               IR.Type.Struct, IR.NO_UID, in_memory := TRUE,
                                up_level := FALSE, f := IR.Never);
     IR.Load_procedure (p.handler.cg_proc);
     IR.Store_addr (frame, M3RT.EF2_handler);
@@ -319,7 +319,7 @@ PROCEDURE Compile3 (p: P): Stmt.Outcomes =
 
     (* declare and initialize the info record *)
     frame := IR.Declare_local (M3ID.NoID, M3RT.EF1_SIZE, Target.Address.align,
-                               IR.Type.Struct, 0, in_memory := TRUE,
+                               IR.Type.Struct, IR.NO_UID, in_memory := TRUE,
                                up_level := FALSE, f := IR.Never);
     IR.Load_nil ();
     IR.Store_addr (frame, M3RT.EF1_info + M3RT.EA_exception);

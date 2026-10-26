@@ -111,8 +111,8 @@ PROCEDURE GenerateTables () =
     INC (size, l_trailer * Target.Char.size);  (*trailer*)
 
     (* allocate the variable *)
-    tbl := IR.Declare_global (M3ID.NoID, size, Target.Address.align,
-                              IR.Type.Struct, 0, exported := FALSE, init := TRUE);
+    tbl := IR.Declare_global (M3ID.NoID, size, Target.Address.align, IR.Type.Struct,
+                              IR.NO_UID, exported := FALSE, init := TRUE);
 
     (* initialize the coverage tables *)
     IR.Begin_init (tbl);

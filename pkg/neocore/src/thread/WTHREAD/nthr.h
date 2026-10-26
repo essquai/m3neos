@@ -31,7 +31,7 @@ typedef struct {
 
     void (*fn)(void *);    /* thread routine      */
     void *fn_arg;          /* routine's argument  */
-    void *self;            /* parameter           */
+    void *axis;            /* parameter           */
     size_t stack_size;     /* parameter           */
 
     void *stack_addr;      /* allocated           */
@@ -65,7 +65,7 @@ extern _Thread_local void *llvm_gc_root_chain;
 
 
 /* Launch a thread with the given context. Thread invokes fn(arg). */
-int32_t nthr_create(nthr_context_t *ctxt, nsyn_lock_t *ctxSyn, size_t stack, void (*fn)(void *), void *arg, void *self);
+int32_t nthr_create(nthr_context_t *ctxt, nsyn_lock_t *ctxSyn, size_t stack, void (*fn)(void *), void *param, void *axis);
 
 /* Wait for the death of the target thread, returns 0 on death */
 int32_t nthr_vigil(nthr_context_t *ctxt);
@@ -74,13 +74,17 @@ int32_t nthr_vigil(nthr_context_t *ctxt);
 void *nthr_self();
 
 /* Set the default context - there can only be one */
-void nthr_default(nthr_context_t *ctxt, nsyn_lock_t *ctxSyn, void *self);
+void nthr_default(nthr_context_t *ctxt, nsyn_lock_t *ctxSyn, void *axis);
 
 /* park current thread until the nexus.safepoint is clear */
 void nthr_park();
 
-/* nsyn_wait substitution, which was deprecated  */
+/* nsyn_wait substitution optionally parks  */
 void nthr_wait(nsyn_lock_t *l, double hence);
+
+/* nsyn_lock substitution optionally parks */
+void nthr_lock(nsyn_lock_t *l, bool no_park);
+
 
 /* tracing */
 void nthr_debug(const char *txt, void *addr, intptr_t p1, intptr_t p2);

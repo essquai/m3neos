@@ -8,6 +8,7 @@
 #include "nref.h"
 #include <stdlib.h>
 #include <stdbool.h>
+#include <unistd.h>
 #include <stdio.h>
 
 /* Module variables */
@@ -18,7 +19,7 @@ _Thread_local void *llvm_gc_root_chain;
 /* make llvm.gcroot thread safe ^*/
 
 
-int nthr_create(nthr_context_t *ctxt, nsyn_lock_t *ctxSyn, size_t stack, void (*rtn)(void *), void *param, void *self) {
+int nthr_create(nthr_context_t *ctxt, nsyn_lock_t *ctxSyn, size_t stack, void (*rtn)(void *), void *param, void *axis) {
     int pid = -1;
 
     stack             = (stack >> 4) << 4; /* align on 16 */
@@ -28,7 +29,7 @@ int nthr_create(nthr_context_t *ctxt, nsyn_lock_t *ctxSyn, size_t stack, void (*
     ctxt->joinSyn     = NULL;
     ctxt->fn          = rtn;
     ctxt->fn_arg      = param;
-    ctxt->self        = self;
+    ctxt->axis        = axis;
     ctxt->stack_size  = stack;
     ctxt->stack_addr  = nref_malloc(stack, Untraced);
     ctxt->stack_ptr   = ctxt->stack_addr + stack;
@@ -51,10 +52,10 @@ int nthr_create(nthr_context_t *ctxt, nsyn_lock_t *ctxSyn, size_t stack, void (*
 }
 
 void *nthr_self() {
-    return nthr_current->self;
+    return nthr_current;
 }
 
-void nthr_default(nthr_context_t *ctxt, nsyn_lock_t *ctxSyn, void *self) {
+void nthr_default(nthr_context_t *ctxt, nsyn_lock_t *ctxSyn, void *axis) {
     if (nthr_current) {
         printf("nthr_default invoked a second time - fatal error\n");
         fflush(NULL);
@@ -65,7 +66,7 @@ void nthr_default(nthr_context_t *ctxt, nsyn_lock_t *ctxSyn, void *self) {
     ctxt->tid         = 1;
     ctxt->outerSyn    = ctxSyn;
     ctxt->joinSyn     = NULL;
-    ctxt->self        = self;
+    ctxt->axis        = axis;
     ctxt->tls_base    = NULL;
     ctxt->stack_chain = NULL;
     ctxt->ended       = 0;
@@ -141,6 +142,38 @@ void nthr_wait(nsyn_lock_t *l, double hence) {
     nthr_debug("nthr_wait exit (lock,tid, watch)", l, nthr_current->tid, incoming);
 }
 
+/* thread lock, taking nexus into account */
+void nthr_lock(nsyn_lock_t *l, bool no_park) {
+    int32_t incoming;
+
+    if (nsyn_trylock(l)) {
+        /* ASSERT no_park uncontended */
+        if (no_park && atomic_load_explicit(&nthr_nexus.safePoint, memory_order_seq_cst)) {
+            fprintf(stderr, "NOPARK nthr_lock self=%d l=%p\n", nthr_current->tid, l);
+            abort();
+        }
+        return;
+    }
+
+    /* contended: block, but as a safe region */
+    nthr_arch_stack32();
+    nthr_current->stack_chain = llvm_gc_root_chain;
+    incoming = atomic_exchange(&nthr_current->watch, deferred);
+
+    nsyn_lock(l);                          /* blocks until the lock is ours */
+
+    atomic_store_explicit(&nthr_current->watch, incoming, memory_order_seq_cst);
+    if (incoming >= vigilant) {
+        if (atomic_load_explicit(&nthr_nexus.safePoint, memory_order_seq_cst)) {
+            /* ASSERT no_park */
+            if (no_park) {
+                fprintf(stderr, "NOPARK nthr_lock self=%d l=%p\n", nthr_current->tid, l);
+                abort();
+            }
+            nthr_park();
+        }
+    }
+}
 
 void nthr_park() {
     int32_t safePoint;
@@ -287,14 +320,14 @@ int32_t nthr_vigil(nthr_context_t *ctxt) {
 void nthr_debug(const char *txt, void *addr, intptr_t p1, intptr_t p2) {
     char dbg[400];
     char a_s[96], p1_s[96], p2_s[96];
+    size_t n;
 
     if (addr == NULL) a_s[0] = '\0'; else sprintf(a_s, " %p", addr);
     if (p1 < 0) p1_s[0] = '\0'; else sprintf(p1_s, " %ld", p1);
     if (p2 < 0) p2_s[0] = '\0'; else sprintf(p2_s, " %ld", p2);
 
-    sprintf(dbg, "%s ::%s%s%s\n", txt, a_s, p1_s, p2_s);
-    printf("%s", dbg);
-    fflush(NULL);
+    n = sprintf(dbg, "%s ::%s%s%s\n", txt, a_s, p1_s, p2_s);
+    write(STDOUT_FILENO, dbg, n);
 }
 
 void nthr_match(size_t lockSz, size_t ctxtSz, size_t nexusSz) {

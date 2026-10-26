@@ -106,7 +106,7 @@ PROCEDURE CompileProcAllocateJmpbufs (p: Proc) =
     FOR i := 0 TO try_count - 1 DO
       p.jmpbufs[i] := IR.Declare_local(M3ID.NoID, Target.Address.size,
                                        Target.Address.align, IR.Type.Addr,
-                                       0, in_memory := FALSE,
+                                       IR.NO_UID, in_memory := FALSE,
                                        up_level := FALSE, f := IR.Likely);
     END;
 

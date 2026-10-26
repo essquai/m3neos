@@ -708,7 +708,7 @@ PROCEDURE StartRaises (t: T;  VAR(*OUT*)l: IR.Label; VAR(*OUT*)frame: IR.Var) =
     frame := NIL;
     IF frame_size # 0 THEN
       frame := IR.Declare_local (M3ID.NoID, frame_size, Target.Address.align,
-                                 IR.Type.Struct, 0, in_memory := TRUE,
+                                 IR.Type.Struct, IR.NO_UID, in_memory := TRUE,
                                  up_level := FALSE, f := IR.Never);
     END;
 

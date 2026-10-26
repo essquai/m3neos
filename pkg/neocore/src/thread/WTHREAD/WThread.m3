@@ -10,6 +10,17 @@ IMPORT M3toC;
 FROM   Cstddef  IMPORT size_t;
 FROM   Compiler IMPORT ThisFile, ThisLine;
 
+TYPE
+  Triple = RECORD
+    t         : T;
+    context   : Context;
+    axis      : Axis;
+
+    busy      : BOOLEAN;
+    next_free : INTEGER;
+  END;
+
+
 REVEAL
 
   Mutex = MutexRep.Public BRANDED "Mutex WThread" OBJECT
@@ -27,8 +38,9 @@ REVEAL
   END;
 
   T = BRANDED "Thread.T WThread" OBJECT
-    threadSyn  : RTSync.T;
-    context    : Context;
+    axis       : UNTRACED REF Axis;
+    context    : UNTRACED REF Context;
+
     closure    : Closure;
     result     : REFANY;
 
@@ -38,20 +50,13 @@ REVEAL
 
     (* linked lists *)
     next_wait  : T;
-    next_fork  : T;
-    prev_fork  : T;
-
-    (* RTThread emulation *)
-    frame      : ADDRESS;                 (* exception handling support *)
-    floatState : FloatMode.ThreadState;   (* per-thread floating point state *)
-    heapState  : RTHeapRep.ThreadState;   (* per-thread heap state *)
   END;
 
 TYPE
   (* A "recursive" mutex used to lock the heap *)
   RecMutex = UNTRACED ROOT BRANDED "HeapMutex WThread" OBJECT
     recmSyn     : RTSync.T;
-    holder      : T;
+    holder      : UNTRACED REF Axis;
     inCritical  : INTEGER;
   METHODS
     lock()      := LockRec;
@@ -66,35 +71,37 @@ TYPE
 
 PROCEDURE Self(): T =
 (* Return the handle of the calling thread. *)
-  VAR t := thread_self();
+  VAR t := thread_context();
   BEGIN
-    RETURN t;  
+    RETURN triple[t.axis.slot].t;  
   END Self;
 
 (*------------------------------------------------------------ Fork, Join ---*)
 PROCEDURE Fork(cl: Closure): T =
 (* Return a handle on a newly-created thread executing "cl.apply()". *)
   VAR
+    slot  := AssignTriple();
     t     : T := NEW(T);
     stack : size_t := defaultStackSize;
     arg   : ADDRESS;
   BEGIN
+    IF slot < 0 THEN Die(ThisLine(), "thread slots exhausted"); END;
+
     (* determine the stack size of this thread *)
     TYPECASE cl OF
     | SizedClosure (scl) => stack := scl.stackSize;
     ELSE (*skip*)
     END;
 
-    t.closure := cl;
-    t.frame   := NIL;
-    RTSync.Init(t.threadSyn);
-    FloatMode.InitThread(t.floatState);
+    triple[slot].t := t;
+    LinkThread(t, ADR(triple[slot].axis), ADR(triple[slot].context));
+    t.closure      := cl;
 
     Debug("WThread.Fork (cl, t)", LOOPHOLE(cl,ADDRESS), LOOPHOLE(t, INTEGER), -1);
 
-    IF LinkNexus(t) = NIL THEN Die(ThisLine(), "WThread.Fork NIL Nexus") END;
-    arg := LOOPHOLE(t,ADDRESS);
-    WITH r = thread_create(t.context, t.threadSyn, stack, Exec, arg, arg) DO
+    IF LinkNexus(t.axis) = NIL THEN Die(ThisLine(), "Fork NIL Nexus") END;
+    arg := t.axis;
+    WITH r = thread_create(t.context, t.axis.threadSyn, stack, Exec, arg, arg) DO
       IF r < 0 THEN DieI(ThisLine(), r) END;
     END;
 
@@ -103,15 +110,20 @@ PROCEDURE Fork(cl: Closure): T =
 
 PROCEDURE Exec(self: ADDRESS) =
   VAR
-    t := LOOPHOLE(self, T);
+    axis := LOOPHOLE(self, UNTRACED REF Axis);
+    slot := axis.slot;
     result : REFANY;
   BEGIN
     (*Debug("Exec (cl,t)", LOOPHOLE(t.closure,ADDRESS), LOOPHOLE(self,INTEGER), -1);*)
-    result := t.closure.apply();
+    result := triple[slot].t.closure.apply();
 
-    RTSync.Lock(t.threadSyn);
-    t.result := result;
-    RTSync.Unlock(t.threadSyn);
+    thread_lock(axis.threadSyn);
+    triple[slot].t.result := result;
+    RTSync.Unlock(axis.threadSyn);
+
+    (* flush thread heap, make thread eligible for GC *)
+    RTHeapRep.FlushThreadState(axis.heapState);
+    triple[slot].t := NIL;
   END Exec;
 
 
@@ -123,26 +135,29 @@ PROCEDURE Join(t: T): REFANY =
     self := Self();
     checked := TRUE;
     result : REFANY;
+    slot := t.axis.slot;
   BEGIN
     (* setup the syn to wait on*)
-    RTSync.Lock(t.threadSyn);
-    IF t.context.joinSyn # NIL THEN checked := FALSE ELSE t.context.joinSyn := ADR(self.threadSyn) END;
+    thread_lock(t.axis.threadSyn);
+    IF t.context.joinSyn # NIL THEN checked := FALSE ELSE t.context.joinSyn := ADR(self.axis.threadSyn) END;
     IF t.context.watch = Recce.joined THEN checked := FALSE; END;
-    RTSync.Unlock(t.threadSyn);
+    RTSync.Unlock(t.axis.threadSyn);
 
     IF NOT checked THEN
       Die(ThisLine(), "attempt to join thread twice")
     END;
 
-    RTSync.Lock(self.threadSyn);
+    thread_lock(self.axis.threadSyn);
     WHILE live # Recce.joined DO
       live := thread_vigil(t.context);
     END;
-    RTSync.Unlock(self.threadSyn);
+    RTSync.Unlock(self.axis.threadSyn);
 
     result := t.result;
-    SeverNexus(t);
-    DISPOSE(t); (* Created on Fork *)
+    SeverNexus(t.axis);
+    t.axis := NIL;
+    t.context := NIL;
+    FreeTriple(slot); (* Release the slot *)
     RETURN result;
   END Join;
 
@@ -155,40 +170,44 @@ PROCEDURE AlertJoin(t: T): REFANY RAISES {Alerted} =
     checked := TRUE;
     arise   := FALSE;
     result  : REFANY;
+    slot := t.axis.slot;
   BEGIN
     (* setup the syn to wait on*)
-    RTSync.Lock(t.threadSyn);
-    IF t.context.joinSyn # NIL THEN checked := FALSE ELSE t.context.joinSyn := ADR(self.threadSyn) END;
+    thread_lock(t.axis.threadSyn);
+    IF t.context.joinSyn # NIL THEN checked := FALSE ELSE t.context.joinSyn := ADR(self.axis.threadSyn) END;
     IF t.context.watch = Recce.joined THEN checked := FALSE; END;
-    RTSync.Unlock(t.threadSyn);
+    RTSync.Unlock(t.axis.threadSyn);
 
     IF NOT checked THEN
       Die(ThisLine(), "attempt to join thread twice")
     END;
 
     (* wait for thread-expiry or alert *)
-    RTSync.Lock(self.threadSyn);
+    thread_lock(self.axis.threadSyn);
     self.onalert := TRUE;
     WHILE live # Recce.joined AND NOT self.alerted DO
       live := thread_vigil(t.context);
     END;
 
     (* reset the join syn *)
-    RTSync.Lock(t.threadSyn);
+    thread_lock(t.axis.threadSyn);
     t.context.joinSyn := NIL;
-    RTSync.Unlock(t.threadSyn);
+    RTSync.Unlock(t.axis.threadSyn);
 
     (* finished with alerts *)
     IF live # Recce.joined THEN arise := TRUE; END;
     self.alerted := FALSE;
     self.onalert := FALSE;
-    RTSync.Unlock(self.threadSyn);
+    RTSync.Unlock(self.axis.threadSyn);
 
     IF arise THEN
       RAISE Alerted;
     ELSE
       result := t.result;
-      SeverNexus(t);
+      SeverNexus(t.axis);
+      t.axis := NIL;
+      t.context := NIL;
+      FreeTriple(slot); (* Release the slot *)
     END;
     RETURN result;
   END AlertJoin;
@@ -201,7 +220,7 @@ PROCEDURE Acquire(m: Mutex) =
     mine := FALSE;
   BEGIN
     (* Pair the lock/unlock *)
-    RTSync.Lock(m.mutxSyn);
+    thread_lock(m.mutxSyn);
 
     (* Is it already free? *)
     IF m.current = NIL THEN
@@ -231,7 +250,7 @@ PROCEDURE Release(m: Mutex) =
     self  := Self();
     bcast := FALSE;
   BEGIN
-    RTSync.Lock(m.mutxSyn);
+    thread_lock(m.mutxSyn);
     <* ASSERT m.current = self*>
     m.current := NIL;
     bcast := m.waiting > 0;
@@ -248,14 +267,14 @@ PROCEDURE Wait(m: Mutex; c: Condition) =
   VAR self := Self();
   BEGIN
     (* Validate that I own the lock *)
-    RTSync.Lock(m.mutxSyn);
+    thread_lock(m.mutxSyn);
     <*ASSERT m.current = self*>
     RTSync.Unlock(m.mutxSyn);
 
     (* I already have the mutex exclusively. Locking cond means I
        will have both the mutex and condition exclusively; no other
        thread will have either of them. *)
-    RTSync.Lock(c.condSyn);
+    thread_lock(c.condSyn);
 
     (* I have the condition, and only I can wait on it. *)
     (* Unlock the mutex and wait for cond signal/broadcast. *)
@@ -275,11 +294,11 @@ PROCEDURE AlertWait(m: Mutex; c: Condition) RAISES {Alerted} =
   VAR self := Self(); alertMe := FALSE;
   BEGIN
     (* Validate that I own the lock *)
-    RTSync.Lock(m.mutxSyn);
+    thread_lock(m.mutxSyn);
     <*ASSERT m.current = self*>
     RTSync.Unlock(m.mutxSyn);
 
-    RTSync.Lock(self.threadSyn);
+    thread_lock(self.axis.threadSyn);
     IF self.alerted THEN
       (* I was already marked, no wait needed *)
       self.alerted := FALSE;
@@ -289,7 +308,7 @@ PROCEDURE AlertWait(m: Mutex; c: Condition) RAISES {Alerted} =
 
       (* Not marked, add myself to the condition *)
       (*Debug("Alert Link start (condSyn, tid)", ADR(c.condSyn), self.context.tid, -1);*)
-      RTSync.Lock(c.condSyn);
+      thread_lock(c.condSyn);
       LinkCond(c, self);
       Release(m);
       RTSync.Unlock(c.condSyn);
@@ -297,13 +316,13 @@ PROCEDURE AlertWait(m: Mutex; c: Condition) RAISES {Alerted} =
 
       (* Wait for someone to tell me the condition arose *)
       (* or to alert me - both happen on my own mutex *)
-      (*Debug("AlertWait (threadSyn, tid)", ADR(self.threadSyn), self.context.tid, -1);*)
-      RTSync.Wait(self.threadSyn);
-      (*Debug("AlertWoken (thdSyn, tid)", ADR(self.threadSyn), self.context.tid, -1);*)
+      (*Debug("AlertWait (axis.threadSyn, tid)", ADR(self.axis.threadSyn), self.context.tid, -1);*)
+      RTSync.Wait(self.axis.threadSyn);
+      (*Debug("AlertWoken (thdSyn, tid)", ADR(self.axis.threadSyn), self.context.tid, -1);*)
 
       (* Remove myself from the condition *)
       (*Debug("Alert Unlink start (condSyn, tid)", ADR(c.condSyn), self.context.tid, -1);*)
-      RTSync.Lock(c.condSyn);
+      thread_lock(c.condSyn);
       SeverCond(c, self);
       RTSync.Unlock(c.condSyn);
       (*Debug("Alert Unlink end (condSyn, tid)", ADR(c.condSyn), self.context.tid, -1);*)
@@ -318,7 +337,7 @@ PROCEDURE AlertWait(m: Mutex; c: Condition) RAISES {Alerted} =
       (* Re-acquire the mutex *)
       Acquire(m);
     END;
-    RTSync.Unlock(self.threadSyn);
+    RTSync.Unlock(self.axis.threadSyn);
 
     IF alertMe THEN
       RAISE Alerted;
@@ -357,23 +376,23 @@ PROCEDURE Broadcast(c: Condition) =
   BEGIN
 
     (* notify all alert-waiters *)
-    RTSync.Lock(c.condSyn);
+    thread_lock(c.condSyn);
     cursor := c.first_wait;
     WHILE cursor # NIL DO
       (*
       IF first THEN
-        Debug("Broadcast start from (thdSyn, tid)", ADR(cursor.threadSyn), cursor.context.tid, -1);
+        Debug("Broadcast start from (thdSyn, tid)", ADR(cursor.axis.threadSyn), cursor.context.tid, -1);
         first := FALSE;
       ELSIF cursor.next_wait # NIL THEN
-        Debug("Broadcast to (threadSyn, tid)", ADR(cursor.threadSyn), cursor.context.tid, -1);
+        Debug("Broadcast to (axis.threadSyn, tid)", ADR(cursor.axis.threadSyn), cursor.context.tid, -1);
       ELSE
-        Debug("Broadcast end at (threadSyn, tid)", ADR(cursor.threadSyn), cursor.context.tid, -1);
+        Debug("Broadcast end at (axis.threadSyn, tid)", ADR(cursor.axis.threadSyn), cursor.context.tid, -1);
       END;
       *)
       waiter := cursor;
       (* next_wait mutex is chained from c.condSyn *)
       cursor := cursor.next_wait;
-      RTSync.Signal(waiter.threadSyn);
+      RTSync.Signal(waiter.axis.threadSyn);
     END;
     RTSync.Unlock(c.condSyn);
 
@@ -387,9 +406,9 @@ PROCEDURE Signal(c: Condition) =
 (* One or more threads waiting on "c" become eligible to run. *)
   BEGIN
     (* notify first alert-waiter *)
-    RTSync.Lock(c.condSyn);
+    thread_lock(c.condSyn);
     IF c.first_wait # NIL THEN
-      RTSync.Signal(c.first_wait.threadSyn)
+      RTSync.Signal(c.first_wait.axis.threadSyn)
     END;
     RTSync.Unlock(c.condSyn);
 
@@ -401,11 +420,11 @@ PROCEDURE Alert(t: T) =
 (* Mark "t" as an alerted thread. *)
   VAR wake := FALSE;
   BEGIN
-    RTSync.Lock(t.threadSyn);
+    thread_lock(t.axis.threadSyn);
     wake := t.onalert;
     t.alerted := TRUE;
-    RTSync.Unlock(t.threadSyn);
-    IF wake THEN RTSync.Signal(t.threadSyn); END;
+    RTSync.Unlock(t.axis.threadSyn);
+    IF wake THEN RTSync.Signal(t.axis.threadSyn); END;
   END Alert;
 
 PROCEDURE TestAlert(): BOOLEAN =
@@ -413,12 +432,12 @@ PROCEDURE TestAlert(): BOOLEAN =
    unmark it. *)
   VAR t := Self(); a := FALSE;
   BEGIN
-    RTSync.Lock(t.threadSyn);
+    thread_lock(t.axis.threadSyn);
     a := t.alerted;
     IF a THEN
       t.alerted := FALSE;
     END;
-    RTSync.Unlock(t.threadSyn);
+    RTSync.Unlock(t.axis.threadSyn);
     RETURN a;
   END TestAlert;
 
@@ -434,19 +453,19 @@ PROCEDURE AlertPause(n: LONGREAL) RAISES {Alerted} =
    the call or sometime during the wait, raise "Alerted". *)
   VAR t := Self(); alertMe := FALSE;
   BEGIN
-    RTSync.Lock(t.threadSyn);
+    thread_lock(t.axis.threadSyn);
     t.onalert := TRUE;
 
      (* Only wait if not already alerted *)
     IF NOT t.alerted THEN
-      RTSync.Wait(t.threadSyn, n);
+      RTSync.Wait(t.axis.threadSyn, n);
     END;
 
     (* no longer waiting, no need to signal me now *)
     alertMe   := t.alerted;
     t.alerted := FALSE;
     t.onalert := FALSE;
-    RTSync.Unlock(t.threadSyn);
+    RTSync.Unlock(t.axis.threadSyn);
 
     IF alertMe THEN RAISE Alerted; END;
   END AlertPause;
@@ -455,19 +474,23 @@ PROCEDURE AlertPause(n: LONGREAL) RAISES {Alerted} =
 (* These methods implement a (reusable) recursive mutex. Use case: heap lock *)
 
 PROCEDURE LockRec (rm : RecMutex) =
-  VAR me := Self();
+  VAR me := thread_context();
   BEGIN
-    IF rm.holder # me THEN
-      RTSync.Lock(rm.recmSyn);
-      rm.holder := me;
+    (* This thread_lock invocation sets noPark TRUE. SuspendOthers is only
+       called with the heap lock held: Colect, StartCollection, AllocTraced,
+       and RTHeapStats. This thread_lock is not intended to park, but
+       may raise an axceptional circumstance we want to catch. *)
+    IF rm.holder # me.axis THEN
+      thread_lock(rm.recmSyn, noPark := TRUE);
+      rm.holder := me.axis;
     END;
     INC(rm.inCritical);
   END LockRec;
 
 PROCEDURE UnlockRec (rm : RecMutex) =
-  VAR me := Self();
+  VAR me := thread_context();
   BEGIN
-    <*ASSERT rm.holder=me*>
+    <*ASSERT rm.holder=me.axis*>
     DEC(rm.inCritical);
     IF rm.inCritical = 0 THEN
       rm.holder := NIL;
@@ -476,14 +499,14 @@ PROCEDURE UnlockRec (rm : RecMutex) =
   END UnlockRec;
 
 PROCEDURE WaitRec (rm : RecMutex) =
-  VAR me := Self();
+  VAR me := thread_context();
   BEGIN
-    <*ASSERT rm.holder=me*>
+    <*ASSERT rm.holder=me.axis*>
     DEC(rm.inCritical);
     <*ASSERT rm.inCritical = 0*>
     rm.holder := NIL;
     RTSync.Wait(rm.recmSyn);
-    rm.holder := me;
+    rm.holder := me.axis;
     <*ASSERT rm.inCritical = 0*>
     INC(rm.inCritical);
   END WaitRec;
@@ -513,88 +536,141 @@ PROCEDURE IncDefaultStackSize (inc: CARDINAL) =
   END IncDefaultStackSize;
 
 (*----------------------------------------------------------------- Nexus ---*)
-PROCEDURE LinkNexus(t : T) : T =
+PROCEDURE LinkNexus(t : UNTRACED REF Axis) : ADDRESS =
 (* Enjoin thread 't' *)
-  VAR head, tail: T;
+  VAR head, tail: UNTRACED REF Axis;
   BEGIN
-    Debug("  LinkNexus begin (tid)", NIL, t.context.tid, -1);
+    Debug("  LinkNexus begin (tid)", NIL, triple[t.slot].context.tid, -1);
+
     RTSync.Lock(nexus.forkSyn);
     head := nexus.forkList;
 
-    Debug("  LinkNexus lock (tid)", NIL, t.context.tid, -1);
-
-    (* t.next_fork mutex is chained from forkSyn *)
+    (* t.next_axis mutex is chained from forkSyn *)
     IF nexus.forkList = NIL THEN
       (* install the first and only *)
       nexus.forkList := t;
-      t.next_fork    := t;
-      t.prev_fork    := t;
+      t.next_axis    := t;
+      t.prev_axis    := t;
     ELSE
       (* replace current tail with t *)
-      tail := head.prev_fork;
+      tail := head.prev_axis;
 
-      head.prev_fork := t;
-      t.next_fork := head;
-      t.prev_fork := tail;
-      tail.next_fork := t;
+      head.prev_axis := t;
+      t.next_axis := head;
+      t.prev_axis := tail;
+      tail.next_axis := t;
     END;
 
     RTSync.Unlock(nexus.forkSyn);
-    Debug("  LinkNexus end (tid)", NIL, t.context.tid, -1);
+
+    Debug("  LinkNexus end (tid)", NIL, triple[t.slot].context.tid, -1);
     RETURN head;
   END LinkNexus;
 
-PROCEDURE SeverNexus(t : T) =
+PROCEDURE SeverNexus(t : UNTRACED REF Axis) =
 (* Remove thread 't' *)
-  VAR prev, next : T;
+  VAR prev, next : UNTRACED REF Axis;
   BEGIN
     <* ASSERT nexus.forkList # NIL*>
-    Debug("  SeverNexus begin (tid)", NIL, t.context.tid, -1);
+    Debug("  SeverNexus begin (tid)", NIL, triple[t.slot].context.tid, -1);
     RTSync.Lock(nexus.forkSyn);
 
-    Debug("  SeverNexus lock (tid)", NIL, t.context.tid, -1);
-
-    (* t.next_fork mutex is chained from forkSyn *)
+    (* t.next_axis mutex is chained from forkSyn *)
     IF nexus.forkList = t THEN
-      <* ASSERT t # t.next_fork*>
+      <* ASSERT t # t.next_axis*>
       (* set the new head *)
-      nexus.forkList := t.next_fork;
+      nexus.forkList := t.next_axis;
     END;
 
     (* replace the next's and prev's *)
-    prev := t.prev_fork;
-    next := t.next_fork;
-    prev.next_fork := next;
-    next.prev_fork := prev;
+    prev := t.prev_axis;
+    next := t.next_axis;
+    prev.next_axis := next;
+    next.prev_axis := prev;
 
     RTSync.Unlock(nexus.forkSyn);
-    Debug("  SeverNexus end (tid)", NIL, t.context.tid, -1);
+    Debug("  SeverNexus end (tid)", NIL, triple[t.slot].context.tid, -1);
   END SeverNexus;
 
+CONST TRIPLES=100;
+VAR
+  triple   : ARRAY [0..TRIPLES-1] OF Triple;
+  tripFree : INTEGER;
+  tripSyn  : RTSync.T;
+
+PROCEDURE InitTriples() =
+  BEGIN
+    (* linked-list assembly *)
+    RTSync.Init(tripSyn);
+    tripFree := 0;
+    FOR i := 0 TO TRIPLES - 2 DO
+      triple[i].next_free := i + 1;
+    END;
+    triple[TRIPLES-1].next_free := -1;
+  END InitTriples;
+
+PROCEDURE AssignTriple() : INTEGER =
+  VAR slot : INTEGER;
+  BEGIN
+    (* Assign *)
+    RTSync.Lock(tripSyn);
+    slot := tripFree;
+    IF slot >= 0 THEN
+      <* ASSERT NOT triple[slot].busy *>
+      triple[slot].busy := TRUE;
+      tripFree := triple[slot].next_free;
+    END;
+    RTSync.Unlock(tripSyn);
+
+    (* Initialise *)
+    IF slot >= 0 THEN
+      triple[slot].t := NIL; (* redundant *)
+      RTSync.Init(triple[slot].axis.threadSyn);
+      FloatMode.InitThread(triple[slot].axis.floatState);
+      triple[slot].axis.heapState := RTHeapRep.ThreadState {};
+      triple[slot].axis.frame := NIL;
+      triple[slot].axis.slot := slot;
+      triple[slot].axis.next_axis := NIL;
+      triple[slot].axis.prev_axis := NIL;
+      (* for triple.context init, see thread_create *)
+    END;
+
+    RETURN slot;
+  END AssignTriple;
+
+PROCEDURE FreeTriple(slot : INTEGER) = 
+  BEGIN
+    <*ASSERT triple[slot].busy *>
+    RTSync.Lock(tripSyn);
+    triple[slot].next_free := tripFree;
+    triple[slot].busy := FALSE;
+    tripFree := slot;
+    RTSync.Unlock(tripSyn);
+  END FreeTriple;
 
 (*--------------------------------------------- garbage collector support ---*)
 PROCEDURE MyHeapState(): UNTRACED REF RTHeapRep.ThreadState =
-  VAR me := Self();
+  VAR me := thread_context();
   BEGIN
-    RETURN ADR(me.heapState);
+    RETURN ADR(me.axis.heapState);
   END MyHeapState;
 
 PROCEDURE SuspendOthers () =
 (* Suspend all threads except the caller's. Always bracketed with
    ResumeOthers. *)
-  VAR toPark : INTEGER; self := Self(); next : T;
+  VAR toPark : INTEGER; ctxt := thread_context(); next : UNTRACED REF Axis;
   BEGIN
     (* notify our intent to coordinate a collection *)
-    Debug("SuspendOthers begin (tid)", NIL, self.context.tid, -1);
+    Debug("SuspendOthers begin (tid)", NIL, ctxt.tid, -1);
 
     (*
      * Establish myself as the safePoint owner
      * virtual PROCEDURE acquireSafe
      *)
     RTSync.Lock(nexus.safeSyn);
-    Debug("SuspendOthers acquireSafe enter (tid,safePoint)", NIL, self.context.tid, nexus.safePoint);
+    Debug("SuspendOthers acquireSafe enter (tid,safePoint)", NIL, ctxt.tid, nexus.safePoint);
     RTSync.Lock(nexus.watchSyn); (* I#3 addition*)
-    self.context.watch := Recce.relief;
+    ctxt.watch := Recce.relief;
     RTSync.Unlock(nexus.watchSyn); (* I#3 addition *)
     RTSync.Broadcast(nexus.watchSyn); (*I#3 addition, moved from inside safePoint loop *)
 
@@ -602,71 +678,71 @@ PROCEDURE SuspendOthers () =
        are still leaving nthr_park (parked > 0): each of them gets to run before the next
        stop begins. The last thread out of nthr_park broadcasts safeSyn. *)
     WHILE nexus.safePoint = 1 OR nexus.parked > 0 DO
-      Debug("SuspendOthers acquireSafe wait (tid,safePoint)", NIL, self.context.tid, nexus.safePoint);
+      Debug("SuspendOthers acquireSafe wait (tid,safePoint)", NIL, ctxt.tid, nexus.safePoint);
       (* recheck the safePoint every SAFE_WAIT seconds *)
       RTSync.Wait(nexus.safeSyn, -1.0D0);
     END;
     (* safePoint zero; grab it *)
     nexus.safePoint := 1;
     RTSync.Unlock(nexus.safeSyn);
-    Debug("SuspendOthers acquireSafe ESTABLISHED (tid,safePoint)", NIL, self.context.tid, nexus.safePoint);
+    Debug("SuspendOthers acquireSafe ESTABLISHED (tid,safePoint)", NIL, ctxt.tid, nexus.safePoint);
 
 
     (*
      * Wait until safePoint established
      * virtual PROCEDURE allSafe
      *)
-    Debug("SuspendOthers allSafe watchSyn pre-lock (tid)", NIL, self.context.tid, -1);
+    Debug("SuspendOthers allSafe watchSyn pre-lock (tid)", NIL, ctxt.tid, -1);
     RTSync.Lock(nexus.watchSyn);
-    Debug("SuspendOthers allSafe begin (tid)", NIL, self.context.tid, -1);
+    Debug("SuspendOthers allSafe begin (tid)", NIL, ctxt.tid, -1);
     LOOP
       (* Count the vigilant threads *)
       toPark := 0;
-      next   := self;
+      next   := ctxt.axis;
       RTSync.Lock(nexus.forkSyn);
-      WHILE next.next_fork # self DO
-        next := next.next_fork;
-        IF next.context.watch = Recce.vigilant THEN INC(toPark); END;
-        Debug("SuspendOthers allSafe (watch,tid,nextTid)", LOOPHOLE(ORD(next.context.watch),ADDRESS), self.context.tid, next.context.tid);
+      WHILE next.next_axis # ctxt.axis DO
+        next := next.next_axis;
+        IF triple[next.slot].context.watch = Recce.vigilant THEN INC(toPark); END;
+        Debug("SuspendOthers allSafe (watch,tid,nextTid)", LOOPHOLE(ORD(triple[next.slot].context.watch),ADDRESS), ctxt.tid, triple[next.slot].context.tid);
       END;
       RTSync.Unlock(nexus.forkSyn);
 
       (* Are they all here? *)
       IF toPark = 0 THEN
-        Debug("SuspendOthers allSafe SUCCESS! (tid,toPark)", NIL, self.context.tid, toPark);
+        Debug("SuspendOthers allSafe SUCCESS! (tid,toPark)", NIL, ctxt.tid, toPark);
         EXIT;
       ELSE
-        Debug("SuspendOthers allSafe wait (tid,toPark)", NIL, self.context.tid, toPark);
+        Debug("SuspendOthers allSafe wait (tid,toPark)", NIL, ctxt.tid, toPark);
         (* recount vigilance every SAFE_WAIT seconds *)
         RTSync.Wait(nexus.watchSyn, -1.0D0);
       END;
     END;
-    Debug("SuspendOthers allSafe watchSyn unlock (tid)", NIL, self.context.tid, -1);
+    Debug("SuspendOthers allSafe watchSyn unlock (tid)", NIL, ctxt.tid, -1);
     RTSync.Unlock(nexus.watchSyn);
 
-    Debug("SuspendOthers end (tid)", NIL, self.context.tid, -1);
+    Debug("SuspendOthers end (tid)", NIL, ctxt.tid, -1);
   END SuspendOthers;
 
 PROCEDURE ResumeOthers () =
 (* Resume the threads suspended by "SuspendOthers", which always 
   precedes it. *)
-  VAR t := Self();
+  VAR ctxt := thread_context();
   BEGIN
     (*
      * Release sfaePoint ownership
      * virtual PROCEDURE releaseSafe
      *)
-    Debug("ResumeOthers start (tid)", NIL, t.context.tid, -1);
+    Debug("ResumeOthers start (tid)", NIL, ctxt.tid, -1);
     RTSync.Lock(nexus.safeSyn);
-    <* ASSERT t.context.watch = Recce.relief*>
+    <* ASSERT ctxt.watch = Recce.relief*>
     <* ASSERT nexus.safePoint = 1*>
     nexus.safePoint := 0;
-    t.context.watch := Recce.vigilant;
+    ctxt.watch := Recce.vigilant;
     RTSync.Unlock(nexus.safeSyn);
 
     (* tell everyone: SuspendOthers (waiting to become the coordinator) and
        nthr_park (waiting for safePoint = 0) both wait on safeSyn *)
-    Debug("ResumeOthers RELEASED safePoint (tid)", NIL, t.context.tid, -1);
+    Debug("ResumeOthers RELEASED safePoint (tid)", NIL, ctxt.tid, -1);
     RTSync.Broadcast(nexus.safeSyn);   
   END ResumeOthers;
 
@@ -694,29 +770,35 @@ PROCEDURE ProcessEachStack (<*UNUSED*> p: PROCEDURE (start, limit: ADDRESS)) =
 (*------------------------------------------------ floating point support ---*)
 
 PROCEDURE MyFPState (): UNTRACED REF FloatMode.ThreadState =
-  VAR me := Self();
+  VAR me := thread_context();
   BEGIN
-    RETURN ADR(me.floatState);
+    RETURN ADR(me.axis.floatState);
   END MyFPState;
 
 (*---------------------------------------------------- exception delivery ---*)
 
 PROCEDURE GetCurrentHandlers(): ADDRESS =
-  VAR me := Self();
+  VAR me := thread_context();
   BEGIN
-    RETURN me.frame;    
+    RETURN me.axis.frame;    
   END GetCurrentHandlers;
 
 PROCEDURE SetCurrentHandlers(h: ADDRESS) =
-  VAR me := Self();
+  VAR me := thread_context();
   BEGIN
-    me.frame := h;
+    me.axis.frame := h;
   END SetCurrentHandlers;
 
 (*--------------------------------------------------------- initialisation --*)
 (* The following RTThread procedures are invoked from the RTLinker.InitRuntime
    and from main() produced by MxGen.GenerateMain, respectively. *)
+VAR defaultT : T := NIL;
+
 PROCEDURE Init() =
+  VAR
+    slot : INTEGER;
+    ctxt : UNTRACED REF Context;
+    axis : UNTRACED REF Axis;
   BEGIN
     (* ABI sanity check *)
     thread_match(BYTESIZE(RTSync.T), BYTESIZE(Context), BYTESIZE(Nexus));
@@ -732,6 +814,22 @@ PROCEDURE Init() =
     (* heap and nexus lock are special *)
     heapMutex := NEW(RecMutex);
 
+    (* Establish triples *)
+    InitTriples();
+    slot := AssignTriple();
+    IF slot # 0 THEN Die(ThisLine(), "initial slot not 0!\n"); END;
+    ctxt := ADR(triple[0].context);
+    axis := ADR(triple[0].axis);
+    IF LinkNexus(axis) # NIL THEN Die(ThisLine(), "Init non-NIL Nexus") END;
+
+
+    (* make the default thread - thread_default MUST come first! *)
+    (* NEW invokes GC *)
+    thread_default(ctxt, axis.threadSyn, axis);
+    defaultT := NEW(T);
+    LinkThread(defaultT, axis, ctxt);
+    triple[0].t := defaultT;
+
   END Init;
 
 PROCEDURE InitialThread(binder : RT0.Binder) =
@@ -741,51 +839,61 @@ PROCEDURE InitialThread(binder : RT0.Binder) =
    the routine's return. Emulates RTLinker.AddUnit(Main_M3) of the startup.
    This procedure is a condensed Fork/Join. *)
   VAR
-    t    : T;
-    self : T;
-    watch : Recce := Recce.vigilant;
+    self    : INTEGER := 0; (* alias for default slot index *)
+    watch   : Recce := Recce.vigilant;
     routine : Routine;
     arg     : ADDRESS;
+    t       : T;
+    slot    := AssignTriple(); (* for spawned main thread *)
+    ctxt    : UNTRACED REF Context;
+    axis    : UNTRACED REF Axis;
   BEGIN
-    (* the child I am spawning *)
-    t       := NEW(T);
-    t.frame := NIL;
-    RTSync.Init(t.threadSyn);
-    FloatMode.InitThread(t.floatState);
+    IF slot < 0 THEN Die(ThisLine(), "initial thread slot exhausted"); END;
 
-    (* to make this work, make myself the default 'thread' *)
-    self       := NEW(T);
-    self.frame := NIL;
-    RTSync.Init(self.threadSyn);
-    FloatMode.InitThread(self.floatState);
-    thread_default(self.context, self.threadSyn, LOOPHOLE(self, ADDRESS));
+    (* the child I am spawning *)
+    ctxt := ADR(triple[slot].context);
+    axis := ADR(triple[slot].axis);
+    t    := NEW(T);
+    triple[slot].t := t;
+    LinkThread(t, axis, ctxt);
+
 
     Debug("InitialThread START (self)", LOOPHOLE(self, ADDRESS), -1, -1);
 
     (* Fork a call to RTLinker.AddUnit(binder) *)
     routine := LOOPHOLE(RTLinker.AddUnit, Routine);
     arg     := LOOPHOLE(binder, ADDRESS);
-    IF LinkNexus(t) # NIL THEN Die(ThisLine(), "WThread.InitialThread non-NIL Nexus") END;
-    WITH r = thread_create(t.context, t.threadSyn, defaultStackSize, routine, arg, LOOPHOLE(t, ADDRESS)) DO
+    IF LinkNexus(t.axis) = NIL THEN Die(ThisLine(), "WThread.InitialThread NIL Nexus") END;
+    WITH r = thread_create(t.context, t.axis.threadSyn, defaultStackSize, routine, arg, t.axis) DO
       IF r < 0 THEN DieI(ThisLine(), r) END;
     END;
 
     (* Join the child back to my 'self' thread *)
-    (* self is not linked to the nexus, it "poses" as a thread in order to
-       join back to the program main thread: binder. It doesn't park *)
-    RTSync.Lock(t.threadSyn);
-    t.context.joinSyn := ADR(self.threadSyn);
-    RTSync.Unlock(t.threadSyn);
+    (* self is a true thread now, created in Init() *)
+    thread_lock(t.axis.threadSyn);
+    t.context.joinSyn := ADR(triple[self].t.axis.threadSyn);
+    RTSync.Unlock(t.axis.threadSyn);
 
-    RTSync.Lock(self.threadSyn);
+    thread_lock(triple[self].t.axis.threadSyn);
     WHILE watch # Recce.joined DO
       watch := thread_vigil(t.context);
     END;
-    RTSync.Unlock(self.threadSyn);
+    RTSync.Unlock(triple[self].t.axis.threadSyn);
 
     (*Debug("InitialThread STOP (self)", LOOPHOLE(self, ADDRESS), -1, -1);*)
 
   END InitialThread;
+
+PROCEDURE LinkThread(t : T; axis: UNTRACED REF Axis; ctxt: UNTRACED REF Context) =
+  BEGIN
+    t.axis := axis;
+    t.context := ctxt;
+    t.closure := NIL;
+    t.result := NIL;
+    t.alerted := FALSE;
+    t.onalert := FALSE;
+    t.next_wait := NIL;
+  END LinkThread;
 
 (* RTThread *)
 PROCEDURE AtForkPrepareOutsideFork() =
@@ -843,18 +951,18 @@ PROCEDURE EnableSwitching () =
 PROCEDURE PushEFrame (frame: ADDRESS) =
   TYPE Frame = UNTRACED REF RECORD next: ADDRESS END;
   VAR
-    me := thread_self();
+    me := thread_context();
     f: Frame := frame;
   BEGIN
-    f.next := me.frame;
-    me.frame := f;
+    f.next := me.axis.frame;
+    me.axis.frame := f;
   END PushEFrame;
 
 (*RTHooks.PopEFrame*)
 PROCEDURE PopEFrame (frame: ADDRESS) =
-  VAR me := thread_self();
+  VAR me := thread_context();
   BEGIN
-    me.frame := frame;
+    me.axis.frame := frame;
   END PopEFrame;
 
 (*---------------------------------------------------------------- errors ---*)

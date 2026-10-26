@@ -69,7 +69,7 @@ PROCEDURE Compile1 (p: P): Stmt.Outcomes =
   BEGIN
     (* declare and initialize the info record *)
     info := IR.Declare_local (M3ID.NoID, Target.Address.size, Target.Address.align,
-                              IR.Type.Addr, 0, in_memory := TRUE,
+                              IR.Type.Addr, IR.NO_UID, in_memory := TRUE,
                               up_level := FALSE, f := IR.Never);
 
     IR.Load_nil ();
@@ -152,7 +152,7 @@ PROCEDURE Compile2 (p: P): Stmt.Outcomes =
     Expr.Prep (p.mutex);
     Expr.Compile (p.mutex);
     frame := IR.Declare_local (M3ID.NoID, M3RT.EF4_SIZE, Target.Address.align,
-                               IR.Type.Struct, 0, in_memory := TRUE,
+                               IR.Type.Struct, IR.NO_UID, in_memory := TRUE,
                                up_level := FALSE, f := IR.Never);
     IR.Store_addr (frame, M3RT.EF4_mutex);
 
