@@ -2,7 +2,7 @@
 
 UNSAFE MODULE WThread EXPORTS Thread, RTThread, RTOS, Scheduler, RTHooks, WThread;
 
-IMPORT FloatMode, MutexRep, RTHeapRep;
+IMPORT FloatMode, MutexRep, RTHeapRep, RTThread;
 IMPORT RT0, RTLinker;
 IMPORT RTError;
 IMPORT RTSync;
@@ -592,7 +592,7 @@ PROCEDURE SeverNexus(t : UNTRACED REF Axis) =
     Debug("  SeverNexus end (tid)", NIL, triple[t.slot].context.tid, -1);
   END SeverNexus;
 
-CONST TRIPLES=100;
+CONST TRIPLES=225;
 VAR
   triple   : ARRAY [0..TRIPLES-1] OF Triple;
   tripFree : INTEGER;
@@ -600,6 +600,8 @@ VAR
 
 PROCEDURE InitTriples() =
   BEGIN
+    Debug("InitTriples", NIL, BYTESIZE(Triple), BYTESIZE(triple));
+
     (* linked-list assembly *)
     RTSync.Init(tripSyn);
     tripFree := 0;
@@ -746,18 +748,55 @@ PROCEDURE ResumeOthers () =
     RTSync.Broadcast(nexus.safeSyn);   
   END ResumeOthers;
 
-PROCEDURE ProcessStacks (<*UNUSED*> p: PROCEDURE (start, limit: ADDRESS)) =
+PROCEDURE ProcessStacks (p: PROCEDURE (start, limit: ADDRESS)) =
 (* Apply p to each thread stack, with [start..limit) being the limits
    of the stack.  All other threads must be suspended.  ProcessStacks
    exists solely for the garbage collector.  Only called within 
    {SuspendOthers, ResumeOthers} *)
+  VAR me, curr : UNTRACED REF Axis;
   BEGIN
+    INC(GC);
+
     (* save the stack pointer to the thread context. Do not delete.
-       It sets a limit for PROCEDURE p *)
+       It saves this co-ordinator's stack limit for PROCEDURE p *)
     thread_stack32();
+    me := thread_context().axis;
+
+    curr := me;
+    REPEAT
+      WITH ring = triple[curr.slot] DO
+        (* process current ring *)
+        RTHeapRep.FlushThreadState(curr.heapState);
+        IF ring.context.watch < Recce.detached THEN
+          <* ASSERT ring.context.stack_ptr # NIL *>
+          (* CtxtDump(ring.context); *)
+          p(ring.context.stack_ptr, ring.context.stack_top);
+          p(ADR(ring.context.regs[0]), ADR(ring.context.regs[0]) + BYTESIZE(size_t)*NREGS);
+        END;
+
+        (* TODO: process this ring's llvm.gcroots on wasm32 *)
+      END;
+
+      (* advance to next nexus ring *)
+      curr := curr.next_axis;
+    UNTIL curr = me;
 
   END ProcessStacks;
+(* DEBUG statements
+RTIO.PutText("ProcessStacks gc="); RTIO.PutInt(GC);
+RTIO.PutText(" tid="); RTIO.PutInt(ring.context.tid);
+RTIO.PutText(" me="); RTIO.PutInt(ORD(curr = me));
+RTIO.PutText(" STACK=(");RTIO.PutAddr(ring.context.stack_top);
+RTIO.PutText(", ");RTIO.PutAddr(ring.context.stack_ptr);
+RTIO.PutText("]\n");RTIO.Flush();
 
+RTIO.PutText("ProcessStacks gc="); RTIO.PutInt(GC);
+RTIO.PutText(" tid="); RTIO.PutInt(ring.context.tid);
+RTIO.PutText(" me="); RTIO.PutInt(ORD(curr = me));
+RTIO.PutText(" REG=(");RTIO.PutAddr(ADR(ring.context.regs[0]));
+RTIO.PutText(", ");RTIO.PutAddr(ADR(ring.context.regs[0]) + BYTESIZE(size_t)*NREGS);
+RTIO.PutText("]\n");RTIO.Flush();
+*)
 PROCEDURE ProcessEachStack (<*UNUSED*> p: PROCEDURE (start, limit: ADDRESS)) =
 (* Apply p to each thread stack, with [start..limit) being the limits
    of the stack.  Each thread is suspended individually.  ProcessEachStack
@@ -766,6 +805,24 @@ PROCEDURE ProcessEachStack (<*UNUSED*> p: PROCEDURE (start, limit: ADDRESS)) =
     
   END ProcessEachStack;
 
+<* UNUSED *> PROCEDURE CtxtDump(VAR ctxt: Context) =
+  VAR
+    n     : INTEGER;
+    sa    : UNTRACED REF ADDRESS := ctxt.stack_ptr;
+    stop : UNTRACED REF ADDRESS := ctxt.stack_top;
+  BEGIN
+     thread_print(M3toC.FlatTtoS("=== Context Stack ==="), NIL, ctxt.tid, -1);
+     WHILE sa < stop DO
+       thread_print(M3toC.FlatTtoS("adr"), sa^, n, -1);
+       INC(n);
+       INC(sa, RTThread.PointerAlignment);
+     END;
+     sa := ADR(ctxt.regs[0]);
+     FOR i := 0 TO NREGS - 1 DO
+       thread_print(M3toC.FlatTtoS("reg"), sa^, i, -1);
+       INC(sa, RTThread.PointerAlignment);
+     END;
+  END CtxtDump;
 
 (*------------------------------------------------ floating point support ---*)
 

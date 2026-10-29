@@ -101,8 +101,8 @@ void nthr_wait(nsyn_lock_t *l, double hence) {
     /*
      * determine info for nexus decisions
      */
-    incoming  = atomic_exchange_explicit(&nthr_current->watch, deferred, memory_order_release);
-    safePoint = atomic_load_explicit(&nthr_nexus.safePoint, memory_order_acquire);
+    incoming  = atomic_exchange_explicit(&nthr_current->watch, deferred, memory_order_seq_cst);
+    safePoint = atomic_load_explicit(&nthr_nexus.safePoint, memory_order_seq_cst);
     nthr_debug("nthr_wait enter (watch,tid,safePoint)", (void *) ((intptr_t) incoming), nthr_current->tid, safePoint);
 
 
@@ -158,11 +158,18 @@ void nthr_lock(nsyn_lock_t *l, bool no_park) {
     /* contended: block, but as a safe region */
     nthr_arch_stack32();
     nthr_current->stack_chain = llvm_gc_root_chain;
-    incoming = atomic_exchange(&nthr_current->watch, deferred);
+
+    /* apply the rule: use watchSyn to keep the co-ordinator aware */
+    nsyn_lock(&nthr_nexus.watchSyn);
+    incoming = atomic_exchange_explicit(&nthr_current->watch, deferred, memory_order_release);
+    nsyn_unlock(&nthr_nexus.watchSyn);
+    nsyn_broadcast(&nthr_nexus.watchSyn);
 
     nsyn_lock(l);                          /* blocks until the lock is ours */
 
+    /* restoring to vigilant doesn't change the co-ordinator's condition */
     atomic_store_explicit(&nthr_current->watch, incoming, memory_order_seq_cst);
+
     if (incoming >= vigilant) {
         if (atomic_load_explicit(&nthr_nexus.safePoint, memory_order_seq_cst)) {
             /* ASSERT no_park */
@@ -322,11 +329,13 @@ void nthr_debug(const char *txt, void *addr, intptr_t p1, intptr_t p2) {
     char a_s[96], p1_s[96], p2_s[96];
     size_t n;
 
-    if (addr == NULL) a_s[0] = '\0'; else sprintf(a_s, " %p", addr);
-    if (p1 < 0) p1_s[0] = '\0'; else sprintf(p1_s, " %ld", p1);
-    if (p2 < 0) p2_s[0] = '\0'; else sprintf(p2_s, " %ld", p2);
+    return;
 
-    n = sprintf(dbg, "%s ::%s%s%s\n", txt, a_s, p1_s, p2_s);
+    if (addr == NULL) a_s[0] = '\0'; else sprintf(a_s, " addr=%p", addr);
+    if (p1 < 0) p1_s[0] = '\0'; else sprintf(p1_s, " p1=%ld", p1);
+    if (p2 < 0) p2_s[0] = '\0'; else sprintf(p2_s, " p2=%ld", p2);
+
+    n = sprintf(dbg, "%s :%s%s%s\n", txt, a_s, p1_s, p2_s);
     write(STDOUT_FILENO, dbg, n);
 }
 

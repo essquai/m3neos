@@ -9,6 +9,8 @@ FROM   Cstddef IMPORT size_t;
 
 CONST NREGS = 6;
 
+VAR GC : INTEGER;
+
 TYPE
   Routine = PROCEDURE(arg: ADDRESS);
   Recce   = { deferred, relief, vigilant, detached, joined };

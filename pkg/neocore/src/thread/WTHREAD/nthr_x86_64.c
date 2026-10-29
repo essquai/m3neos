@@ -27,29 +27,29 @@ static void *nthr_func32(void *arg) {
     int32_t watch;
     int32_t safePoint;
 
-    printf("nthr_func tid=%d begin\n", ctxt->tid); fflush(NULL);
+    // printf("nthr_func tid=%d begin\n", ctxt->tid); fflush(NULL);
 
     /* establish the context */
     nthr_current = ctxt;
-    atomic_store_explicit(&ctxt->watch, vigilant, memory_order_release);
+    atomic_store_explicit(&ctxt->watch, vigilant, memory_order_seq_cst);
 
     /* 
      * check whether a safePoint was invoked while this thread spawns
      */
-    safePoint = atomic_load_explicit(&nx->safePoint, memory_order_acquire);
+    safePoint = atomic_load_explicit(&nx->safePoint, memory_order_seq_cst);
     if (safePoint) {
-      printf("nthr_func tid=%d nexus park\n", ctxt->tid); fflush(NULL);
+      // printf("nthr_func tid=%d nexus park\n", ctxt->tid); fflush(NULL);
       nthr_park();
     } else {
       nsyn_broadcast(&nx->watchSyn);
-      printf("nthr_func tid=%d nexus broadcast\n", ctxt->tid); fflush(NULL);
+      // printf("nthr_func tid=%d nexus broadcast\n", ctxt->tid); fflush(NULL);
     }
 
 
     /* dispatch via saved context */
-    printf("nthr_func tid=%d dispatch\n", ctxt->tid); fflush(NULL);
+    // printf("nthr_func tid=%d dispatch\n", ctxt->tid); fflush(NULL);
     ctxt->fn(ctxt->fn_arg);
-    printf("nthr_func tid=%d exec\n", ctxt->tid); fflush(NULL);
+   // printf("nthr_func tid=%d exec\n", ctxt->tid); fflush(NULL);
 
     /* update and advertise watch state */
     nsyn_lock(&nx->watchSyn);
@@ -62,7 +62,7 @@ static void *nthr_func32(void *arg) {
     nsyn_lock(ctxt->outerSyn);
     joinSyn = ctxt->joinSyn;
     nsyn_unlock(ctxt->outerSyn);
-    printf("nthr_func end tid=%d join=%p live=%d\n", ctxt->tid, joinSyn, watch); fflush(NULL);
+    // printf("nthr_func end tid=%d join=%p live=%d\n", ctxt->tid, joinSyn, watch); fflush(NULL);
     if (joinSyn) {
         nsyn_lock(joinSyn);
         nsyn_signal(joinSyn);

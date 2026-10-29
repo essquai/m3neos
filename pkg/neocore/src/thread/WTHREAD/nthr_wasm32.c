@@ -94,7 +94,9 @@ void nthr_arch_top32(nthr_context_t *ctxt) {
 
 void nthr_arch_reap32(nthr_context_t *ctxt) {
     /* awakened by nthr_wasi.s custom thread */
-    __builtin_wasm_memory_atomic_wait32((int32_t *)&ctxt->ended, 0, -1);
+    while (atomic_load_explicit(&ctxt->ended, memory_order_acquire) == 0) {
+      __builtin_wasm_memory_atomic_wait32((int32_t *)&ctxt->ended, 0, -1);
+    }
 }
 
 int nthr_arch_spawn32(nthr_context_t *ctxt) {
