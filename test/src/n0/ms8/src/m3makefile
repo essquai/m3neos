@@ -1,0 +1,7 @@
+import ("neocore")
+
+module ("Loque")
+implementation ("Main")
+
+build_standalone()
+program ("ms8")

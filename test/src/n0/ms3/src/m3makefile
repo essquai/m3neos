@@ -1,0 +1,8 @@
+import ("neosys")
+import ("neoaux")
+import ("m3ir")
+
+implementation ("Main")
+
+build_standalone()
+program ("phb")

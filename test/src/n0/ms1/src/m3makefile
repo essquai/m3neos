@@ -1,0 +1,7 @@
+import ("neosys")
+import ("neoaux")
+
+implementation ("Main")
+
+build_standalone()
+program ("ms1")

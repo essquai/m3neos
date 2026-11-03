@@ -1,0 +1,3 @@
+Interface ("auxThread")
+Interface ("auxRTThread")
+Interface ("auxRTOS")

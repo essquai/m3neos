@@ -1,0 +1,5 @@
+"../Main.m3", line 8: Variable cannot have an open array type. (a)
+"../Main.m3", line 8: ".." not allowed in open array constructor (2.6.8).
+"../Main.m3", line 8: warning: not used (a)
+2 errors and 1 warning encountered
+Fatal Error: package build failed

@@ -1,0 +1,4 @@
+import("m3core")
+import("libm3")
+implementation("Main")
+include("../../Test.common")

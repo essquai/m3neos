@@ -1,0 +1,8 @@
+
+
+***
+*** runtime error:
+***    An enumeration or subrange value was out of range.
+***    file "../src/runtime/common/RTAllocator.m3", line 344
+***
+

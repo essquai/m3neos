@@ -1,0 +1,8 @@
+import ("neosys")
+import ("neolib")
+
+include_dir ("common")
+include_dir ("WTHREAD")
+
+Library ("neoaux")
+

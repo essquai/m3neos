@@ -1,0 +1,6 @@
+import ("neocore")
+
+implementation ("Main")
+
+build_standalone()
+program ("ms4")

@@ -1430,7 +1430,7 @@ PROCEDURE DumpLLVMIR(<*UNUSED*> self : U; BitcodeFileName, AsmFileName: TEXT) =
       IF msg # NIL THEN
         LLVM.LLVMDisposeMessage(msg^);
       END;
-      RETURN;
+      (*RETURN;*)
     END;
     (* Write Assembly format 1st, in case of obscure failures during write. *)
     IF AsmFileName # NIL THEN
@@ -2024,6 +2024,26 @@ PROCEDURE VName(v : LvVar; debug := FALSE) : TEXT =
 (* Determine Garbage Collection Root status *)
 TYPE TraceKind = {None, Scalar, Composite};
 
+ (* A Scalar root is a single traced pointer, and LLVM only accepts
+    llvm.gcroot(slot, null) when the slot is a pointer-typed alloca. The
+    front end sometimes stamps a non-pointer aggregate temp with the UID of
+    a traced pointer type: New.m3:GenOpenArray declares the dope/shape temp
+    of NEW(REF ARRAY OF T, n) as a 24-byte Struct whose m3t is the REF
+    type. That temp holds sizes and a self-pointer, not a traced reference
+    of its own, and as an alloca it is memory in the frame anyway, so it
+    needs no root. Aggregates that really hold references are classified
+    Composite (records) or None (arrays) before this point and are not
+    affected. *)
+PROCEDURE ClassifyVar(self: U; v: LvVar): TraceKind =
+  VAR tk := ClassifyTrace(self, v.m3t);   (* type-only, unchanged *)
+  BEGIN
+    (* A Scalar root is one traced pointer in a pointer-typed slot. *)
+    IF tk = TraceKind.Scalar AND v.type # Type.Addr THEN
+      RETURN TraceKind.None;
+    END;
+    RETURN tk;
+  END ClassifyVar;
+
 PROCEDURE ClassifyTrace(self: U; m3t: TypeUID): TraceKind =
   VAR entry: REFANY; found: BOOLEAN;
       ptr: PointerDebug;
@@ -2186,7 +2206,7 @@ PROCEDURE AllocVar(self : U; v : LvVar) =
     (* wasm32-design-intent target codegen to ensure llvm does not
        optimize this stack variable away; composites and pointers should
        be forced onto the shadow stack *)
-    tk := ClassifyTrace(self, v.m3t); 
+    tk := ClassifyVar(self, v); 
     IF tk # TraceKind.None THEN
       (* build metadata bytecode *)
       metaVal := FindMeta(self, tk, v.m3t);

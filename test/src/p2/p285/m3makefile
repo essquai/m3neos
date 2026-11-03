@@ -1,0 +1,4 @@
+% Small program with array initializer that used to work.
+
+implementation("Main")
+include ("../../Test.common")

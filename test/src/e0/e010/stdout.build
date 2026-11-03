@@ -1,0 +1,4 @@
+"../Main.m3", line 8: Too few values specified in fixed array constructor (2.6.8).
+"../Main.m3", line 9: Variable cannot have an open array type. (y)
+2 errors encountered
+Fatal Error: package build failed

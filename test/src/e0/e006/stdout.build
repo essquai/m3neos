@@ -1,0 +1,12 @@
+"../Main.m3", line 20: undefined (Rd.Failure)
+"../Main.m3", line 20: is not an exception (Rd.Failure)
+"../Main.m3", line 21: undefined (Wr.Failure)
+"../Main.m3", line 21: is not an exception (Wr.Failure)
+"../Main.m3", line 21: undefined (Wr.Failure)
+"../Main.m3", line 21: undefined (Rd.Failure)
+"../Main.m3", line 20: exception(s) don't have a return argument
+"../Main.m3", line 20: Variable has no type. (reason)
+"../Main.m3", line 21: exception(s) don't have a return argument
+"../Main.m3", line 21: Variable has no type. (reason)
+10 errors encountered
+Fatal Error: package build failed
