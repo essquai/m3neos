@@ -70,7 +70,7 @@ void nsyn_broadcast(nsyn_lock_t *l) {
 }
 
 #define NSYN_AWAIT 42
-static _Atomic int32_t nsyn_nocondition = NSYN_AWAIT;
+static _Atomic uint32_t nsyn_nocondition = NSYN_AWAIT;
 
 void nsyn_resume(double hence) {
     int64_t timeout = (int64_t) (hence * 1e9);

@@ -24,8 +24,9 @@
 
 INTERFACE RTSync;
 
+FROM Cstdint IMPORT uint32_t;
+
 TYPE
-  uint32_t = BITS 32 FOR [ 0 .. 16_FFFFFFFF ];
   T = RECORD
     next_ticket  : uint32_t;
     next_serving : uint32_t;

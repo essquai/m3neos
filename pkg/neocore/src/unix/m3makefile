@@ -35,6 +35,10 @@ readonly _UnixPieces = {
 
 include_dir (OS_TYPE)
 include_dir ("Common")
+if equal (TARGET, "wasm32")
+  include_dir ("WASI")
+end
+
 
 if _UnixPieces contains TARGET
   local pieces = _UnixPieces {TARGET}

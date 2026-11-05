@@ -9,11 +9,16 @@
 % wasm32
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%readonly TARGET = "AMD64_LINUX" % code generation target
-%readonly GNU_PLATFORM = "amd64-linux" % "cpu-os" string for GNU
 
-SYSTEM_CC = "clang -g --target wasm32-wasip1-threads -pthread -matomics"
-SYSTEM_CXXC = "clang++ -g --target wasm32-wasip1-threads -pthread -matomics"
+SYSROOT = "/opt/wasi-sysroot-24.0"
+CC_FLAGS = " --target=wasm32-wasip1-threads"
+  & " --sysroot=" & SYSROOT
+  & " -pthread -matomics"
+  & " -D_WASI_EMULATED_SIGNAL -D_WASI_EMULATED_MMAN"
+  & " -mexception-handling"
+
+SYSTEM_CC   = "clang -g" & CC_FLAGS
+SYSTEM_CXXC = "clang++ -g" & CC_FLAGS
 
 readonly SYSTEM_ASM = "clang --target=wasm32-wasip1-threads" % Assembler
 
@@ -52,16 +57,26 @@ if not defined ("MAX_MEMORY")
   MAX_MEMORY = "33554432"
 end
 
+
+WASI_LIBS = " -lwasi-emulated-signal -lwasi-emulated-mman -lwasi-emulated-getpid"
 SYSTEM_LD = SYSTEM_CXXXC
   & LD_PREF
-  & " -Wl,-z,now"
-  & " -Wl,-z,origin"
-  & " -Bsymbolic"
   & " -Wl,--fatal-warnings"
-  & " -Wl,-rpath,\\$ORIGIN"
-  & " -Wl,-rpath,\\$ORIGIN/../lib"
-  & " -Wl,--warn-common"
   & " -Wl,--shared-memory,--import-memory,--max-memory=" & MAX_MEMORY
+  & WASI_LIBS
+
+% disable shared libraries for wasm32
+proc AdjustShared(shared) is
+  return FALSE
+end
+
+% PIC would make every module import __memory_base,
+% wasm-ld does not define it for static linking
+llvmback_pic = "-relocation-model=static"
+
+% Must match the C side (-pthread -matomics): wasm-ld --shared-memory rejects
+% objects built without atomics/bulk-memory.
+llvmback_features = "-mattr=+atomics,+bulk-memory,+mutable-globals"
 
 include("Unix.common")
 

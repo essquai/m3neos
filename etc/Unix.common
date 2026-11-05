@@ -218,6 +218,10 @@ if not defined("llvmback_pic")
   llvmback_pic = "-relocation-model=pic"
 end
 
+if not defined("llvmback_features")
+  llvmback_features = ""
+end
+
 if not defined("llvm_backend")
 
   proc llvm_backend(source, outfile, optimize, debug, filetype) is
@@ -229,7 +233,10 @@ if not defined("llvm_backend")
       args += "-mtriple=" & TARGET
       args += "--dwarf-directory=0 -filetype=" & filetype
       args += llvmback_pic
-
+      
+      if not equal (llvmback_features, "")
+          args += llvmback_features
+      end
       if optimize
           args += llvmback_optimize
       else

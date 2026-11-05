@@ -14,7 +14,15 @@
 %------------------------------------------------------------------------------
 
 h_source("unix/Common/m3unix")
-h_source("m3core")
+
+% m3core.h: x86_64 (and any other host) keeps the original header.
+% wasm32 will get its own WAMR/wasi-libc-oriented flavour from the
+% "unix/WASI" sub-directory along with C source replacements related to
+% Cstd and Sys that wasi-libc lacks.  Exactly one m3core.h is registered,
+% or there would be a duplicate-unit error for it.
+if not equal (TARGET, "wasm32")
+  h_source("m3core")
+end
 
 %----------------------------------------------- machine dependent packages ---
 

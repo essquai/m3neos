@@ -25,7 +25,6 @@
 #include <time.h>
 #include <errno.h>
 #include <memory.h>
-#include <malloc.h>
 
 #include "nref.h"
 #include "nsyn.h"
@@ -1280,22 +1279,6 @@ void *vcalloc(size_t num, size_t size) {
   return ptr;
 }
 
-static int count_linked_list_size(Region *list) {
-  int size = 1;
-  for (Region *i = list->next; i != list; list = list->next) {
-    ++size;
-  }
-  return size;
-}
-
-static size_t count_linked_list_space(Region *list) {
-  size_t space = 0;
-  for (Region *i = list->next; i != list; list = list->next) {
-    space += region_payload_end_ptr(i) - region_payload_start_ptr(i);
-  }
-  return space;
-}
-
 // return each context's numBytes parameter
 void nref_sizes(size_t *bytes) {
   int i;
@@ -1304,78 +1287,6 @@ void nref_sizes(size_t *bytes) {
   }
 }
 
-
-struct mallinfo nref_mallinfo(nref_t ref) {
-  int64_t max, cur;
-  rctx_t *ctx = &rctx[ref];
-
-  MALLOC_ACQUIRE(ref);
-
-  struct mallinfo info;
-  // Non-mmapped space allocated (bytes): For emmalloc,
-  // let's define this as the difference between heap size and dynamic top end.
-  nref_sbrk_stat(&max, &cur, &ctx->segment);
-  info.arena = max - cur;
-  // info.arena = emscripten_get_heap_size() - (size_t)nref_sbrk_vary(0);
-  // Number of "ordinary" blocks. Let's define this as the number of highest
-  // size blocks. (subtract one from each, since there is a sentinel node in each list)
-  info.ordblks = count_linked_list_size(&ctx->freeRegionBuckets[NUM_FREE_BUCKETS-1])-1;
-  // Number of free "fastbin" blocks. For emmalloc, define this as the number
-  // of blocks that are not in the largest pristine block.
-  info.smblks = 0;
-  // The total number of bytes in free "fastbin" blocks.
-  info.fsmblks = 0;
-  for (int i = 0; i < NUM_FREE_BUCKETS-1; ++i) {
-    info.smblks += count_linked_list_size(&ctx->freeRegionBuckets[i])-1;
-    info.fsmblks += count_linked_list_space(&ctx->freeRegionBuckets[i]);
-  }
-
-  info.hblks = 0; // Number of mmapped regions: always 0. (no mmap support)
-  info.hblkhd = 0; // Amount of bytes in mmapped regions: always 0. (no mmap support)
-
-  // Walk through all the heap blocks to report the following data:
-  // The "highwater mark" for allocated space—that is, the maximum amount of
-  // space that was ever allocated. Emmalloc does not want to pay code to
-  // track this, so this is only reported from current allocation data, and
-  // may not be accurate.
-  info.usmblks = 0;
-  info.uordblks = 0; // The total number of bytes used by in-use allocations.
-  info.fordblks = 0; // The total number of bytes in free blocks.
-  // The total amount of releasable free space at the top of the heap.
-  // This is the maximum number of bytes that could ideally be released by malloc_trim(3).
-  Region *lastActualRegion = prev_region((Region*)(ctx->listOfAllRegions->endPtr - sizeof(Region)));
-  info.keepcost = region_is_free(lastActualRegion) ? lastActualRegion->size : 0;
-
-  RootRegion *root = ctx->listOfAllRegions;
-  while (root) {
-    Region *r = (Region*)root;
-    assert(debug_region_is_consistent(r));
-    uint8_t *lastRegionEnd = root->endPtr;
-    while ((uint8_t*)r < lastRegionEnd) {
-      assert(debug_region_is_consistent(r));
-
-      if (region_is_free(r)) {
-        // Count only the payload of the free block towards free memory.
-        info.fordblks += region_payload_end_ptr(r) - region_payload_start_ptr(r);
-        // But the header data of the free block goes towards used memory.
-        info.uordblks += REGION_HEADER_SIZE;
-      } else {
-        info.uordblks += r->size;
-      }
-      // Update approximate watermark data
-      info.usmblks = MAX(info.usmblks, (intptr_t)r + r->size);
-
-      if (r->size == 0) {
-        break;
-      }
-      r = next_region(r);
-    }
-    root = root->next;
-  }
-
-  MALLOC_RELEASE(ref);
-  return info;
-}
 
 static char *nref_name[] = {"Virtual ",
                             "Untraced",

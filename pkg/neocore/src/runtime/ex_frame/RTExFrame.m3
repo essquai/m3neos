@@ -25,7 +25,12 @@ TYPE
 
 TYPE
   ExceptionList = UNTRACED REF (*ARRAY OF*) RT0.ExceptionUID;
-  FinallyProc   = PROCEDURE (VAR a: RT0.RaiseActivation) RAISES ANY;
+  (* The FINALLY handler is a nested procedure whose only formal is the
+     static link (the front end's nameless "activation" parameter is taken
+     as the static link by the LLVM backends).  The signature here must match
+     what the handler is compiled as: a wasm call_indirect with an extra
+     argument traps with a signature mismatch. *)
+  FinallyProc   = PROCEDURE () RAISES ANY;
 
 TYPE (* RaisesNone *)
   Frame = UNTRACED REF RECORD (* EF *)
@@ -203,14 +208,14 @@ PROCEDURE InvokeFinallyHandler (f: Frame;  VAR a: RT0.RaiseActivation) RAISES AN
     cl.frame  := p.frame;
     
     RTThread.SetCurrentHandlers (f.next); (* cut to the new handler *)
-    CallProc (LOOPHOLE (ADR (cl), FinallyProc), a);
+    CallProc (LOOPHOLE (ADR (cl), FinallyProc));
   END InvokeFinallyHandler;
 
-PROCEDURE CallProc (p: FinallyProc;  VAR a: RT0.RaiseActivation) RAISES ANY =
+PROCEDURE CallProc (p: FinallyProc) RAISES ANY =
   (* we need to fool the compiler into generating a call
      to a nested procedure... *)
   BEGIN
-    p (a);
+    p ();
   END CallProc;
 
 PROCEDURE ReleaseLock (f: Frame) =

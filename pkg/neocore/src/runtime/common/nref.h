@@ -29,7 +29,6 @@
  */
 #include <stddef.h>
 #include <stdbool.h>
-#include <malloc.h>
 
 typedef enum {
   Virtual,
@@ -55,7 +54,6 @@ void vfree(void *ptr);
 /* Meta Information */
 void nref_sizes(size_t *bytes);
 void nref_memstat();
-struct mallinfo nref_mallinfo(nref_t ref);
 int  nref_validate_memory_regions(nref_t ref);
 void nref_dump_memory_regions(nref_t ref);
 void nref_dump_free_dynamic_memory_fragmentation_map(nref_t ref);

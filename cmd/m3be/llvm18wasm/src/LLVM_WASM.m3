@@ -1392,7 +1392,12 @@ PROCEDURE BuildFunc(self : U; p : Proc) =
          llvm-compiled code and an m3cc-compiled runtime . *)
       IF param = mlProc.staticLinkFormal THEN
         <* ASSERT i = 0 *> (* For leftmost SL. *)
-        LLVM.LLVMAddAttributeAtIndex(mlProc.lvProc, i+1, EnumAttr("nest"));
+        (* The static link is an ordinary leftmost i8* formal.  We deliberately
+           do NOT mark it 'nest': the WebAssembly backend does not implement
+           nest arguments ("WebAssembly hasn't implemented nest arguments"),
+           and nothing here needs it, since every caller passes the static
+           link explicitly (see call_direct, InnerCallIndirect). *)
+        (* LLVM.LLVMAddAttributeAtIndex(mlProc.lvProc, i+1, EnumAttr("nest")); *)
       END;
 
       (* Don't use byval attribute, because it is too hard to know when to
@@ -1916,7 +1921,13 @@ PROCEDURE import_global (self: U;  n: Name;  s: ByteSize;  a: Alignment; t: Type
       globName := M3ID.ToText(v.name);
     END;
 
-    v.lv := LLVM.LLVMAddGlobal(modRef, v.lvType, LT(globName));
+    (* CompileSafepoint may already have declared this symbol: nthr_nexus
+       Don't do it twice.  *)
+    v.lv := LLVM.LLVMGetNamedGlobal(modRef, LT(globName));
+    IF v.lv = NIL THEN
+      v.lv := LLVM.LLVMAddGlobal(modRef, v.lvType, LT(globName));
+    END;
+
     (* no initialisers for external globals *)
     LLVM.LLVMSetAlignment(v.lv, v.align);
 
@@ -2035,8 +2046,29 @@ TYPE TraceKind = {None, Scalar, Composite};
     Composite (records) or None (arrays) before this point and are not
     affected. *)
 PROCEDURE ClassifyVar(self: U; v: LvVar): TraceKind =
-  VAR tk := ClassifyTrace(self, v.m3t);   (* type-only, unchanged *)
+  VAR tk : TraceKind; entry: REFANY;
   BEGIN
+    (* A front-end temp may carry the UID of a type that this unit never
+       declares: RunTyme.EmitCheckLoadTracedRef stamps the temp with the type
+       of the loaded value, e.g. the REF ARRAY OF CHAR in Text8.T.contents,
+       reached through an opaque type whose revelation lives in another
+       interface. That is not a declaration-ordering violation, so the
+       assertion in ClassifyTrace does not apply. The type is unknown, so the
+       temp is rooted if it is pointer-represented: rooting a value that
+       turns out to be untraced costs a shadow-stack slot and nothing else,
+       whereas leaving a traced one unrooted would break once an optimiser
+       is enabled (Phase O). Locals, params and globals keep the assertion:
+       their types are always declared first. *)
+    IF v.varType = VarType.Temp AND v.m3t # M3IR.NO_UID
+       AND NOT self.debugTable.get(v.m3t, (*OUT*)entry) THEN
+      IF v.type = Type.Addr THEN
+        RETURN TraceKind.Scalar;
+      ELSE
+        RETURN TraceKind.None;
+      END;
+    END;
+
+    tk := ClassifyTrace(self, v.m3t);   (* type-only, unchanged *)
     (* A Scalar root is one traced pointer in a pointer-typed slot. *)
     IF tk = TraceKind.Scalar AND v.type # Type.Addr THEN
       RETURN TraceKind.None;
@@ -2712,7 +2744,14 @@ void nthr_park();
     LLVM.LLVMStructSetBody (ctxtType, fldRef, NUMBER(cx), FALSE);
 
     (* no initializer => "external global" *)
-    nexusVar := LLVM.LLVMAddGlobal (modRef, nexusType, LT("nthr_nexus"));
+    (* An interface may already have imported the same symbol, e.g. WThread.i3
+       has <*EXTERNAL "nthr_nexus"*> VAR nexus.  LLVMAddGlobal would then
+       silently rename ours to "nthr_nexus.1", an undefined symbol at link time.
+       Reuse the existing global; we only ever load/GEP it with our own types. *)
+    nexusVar := LLVM.LLVMGetNamedGlobal (modRef, LT("nthr_nexus"));
+    IF nexusVar = NIL THEN
+      nexusVar := LLVM.LLVMAddGlobal (modRef, nexusType, LT("nthr_nexus"));
+    END;
     LLVM.LLVMSetAlignment (nexusVar, self.ptrAlign);
 
     currentVar := LLVM.LLVMAddGlobal (modRef, ptrType, LT("nthr_current"));
@@ -4049,7 +4088,7 @@ PROCEDURE IntAbs(a : LLVM.ValueRef; t : LLVM.TypeRef) : LLVM.ValueRef =
     paramsRef := NewValueArr(paramsArr,numParams);
     paramsArr[0] := a;
     paramsArr[1] := intMinPoison;
-    fn := IntrinsicFunc(M3Intrinsic.m3abs, numParams, t, t);
+    fn := IntrinsicFunc(M3Intrinsic.m3abs, 1, t);
     fnTy := LLVM.LLVMGetFunctionType(fn);
     res := LLVM.LLVMBuildCall2(builderIR, fnTy, fn, paramsRef,
                                numParams, LT("abs"));
@@ -4589,7 +4628,7 @@ PROCEDURE DoRotate(value,shift : LLVM.ValueRef; t : LLVM.TypeRef;
     ELSE
       m3id := M3Intrinsic.m3fshr;
     END;
-    fn := IntrinsicFunc(m3id, numParams, t, t, t);
+    fn := IntrinsicFunc(m3id, 1, t);
     fnTy := LLVM.LLVMGetFunctionType(fn);
     res := LLVM.LLVMBuildCall2(builderIR, fnTy, fn, paramsRef,
                                numParams, LT("rot"));
@@ -5602,7 +5641,7 @@ PROCEDURE IndirectFuncType
 
 PROCEDURE InnerCallIndirect
   (self: U; proc: LLVM.ValueRef; t: Type; <*UNUSED*> cc: CallingConvention;
-   next, handler : Label; call : BOOLEAN; Nested: BOOLEAN;
+   next, handler : Label; call : BOOLEAN; <*UNUSED*>Nested: BOOLEAN;
    merge : LLVM.BasicBlockRef := NIL) : LLVM.ValueRef =
   (* Call the procedure whose llvm address is proc.
      The procedure returns a value of CG type t.
@@ -5678,11 +5717,16 @@ PROCEDURE InnerCallIndirect
       END;
     END;
 
-    (* Set 'nest' attribute of static link formal. *)
+    (* No 'nest' call-site attribute: on wasm the static link, when Nested,
+       is simply the first actual of the signature built by IndirectFuncType.
+       The with/without-SL split in call_invoke_indirect gives each variant
+       its own call_indirect type. 
+
     IF Nested THEN
       LLVM.LLVMAddCallSiteAttribute
         (resultVal, 1 (*The parameter no. Zero is func return*), EnumAttr("nest"));
     END;
+    *)
 
     (* If we knew whether to, we would set the 'byval' attribute for structs
        passed by value here, but it is too hard to know whether, since we don't

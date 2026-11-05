@@ -3,7 +3,7 @@
 
 MODULE MxGen;
 
-IMPORT Fmt, Wr, Thread, Stdio;
+IMPORT Fmt, Wr, Thread, Stdio, Text;
 IMPORT Mx, MxRep, MxMap, M3ID, Target;
 IMPORT M3IR, M3IR_Asm, TInt, TargetMap;
 
@@ -130,6 +130,13 @@ CONST Prefix = ARRAY OF TEXT {
       FOR i := FIRST(Prefix) TO LAST(Prefix) DO
         Out (s, Prefix [i]);
         Out (s, "\n");
+      END;
+      IF Text.Equal(Target.System_name, "wasm32") THEN
+        (* wasi-libc's _start calls __main_void, which calls
+          __main_argc_argv (argc, argv). Declare this here so that main
+          can fetch its environment pointer for RTLinker__InitRuntime. *)
+        Out (s, "//wasi-libc environment access", EOL);
+        Out (s, "char** __wasilibc_get_environ (void);", EOL, EOL);
       END;
 
     ELSE
@@ -389,8 +396,21 @@ PROCEDURE GenerateCEntry (VAR s: State) =
       Out (s, "{", EOL);
       Out (s, "  RTLinker__InitRuntime (-1/*argc*/, (ADDRESS)args, (ADDRESS)GetEnvironmentStringsA(), (ADDRESS)self);\n");
     ELSE
-      Out (s, "int main (int argc, char** argv, char** envp)", EOL);
-      Out (s, "{", EOL);
+      IF Text.Equal(Target.System_name, "wasm32") THEN
+        (* wasi-libc's _start calls __main_void, which calls
+           __main_argc_argv (argc, argv).  clang names a main that, only when
+           it has exactly two parameters.  With the usual three it stays
+           "main", __main_argc_argv is left undefined-weak, and wasm-ld fills
+           it with a body that is just "unreachable".  So take two and get the
+           environment from wasi-libc, which initialises it lazily. *)
+        Out (s, "int main (int argc, char** argv)", EOL);
+        Out (s, "{", EOL);
+        Out (s, "  char** envp = __wasilibc_get_environ ();", EOL);
+      ELSE
+        Out (s, "int main (int argc, char** argv, char** envp)", EOL);
+        Out (s, "{", EOL);
+      END;
+
       Out (s, "  nref_prologue (argc, argv);\n");
       Out (s, "  RTLinker__InitRuntime (argc, (ADDRESS)argv, (ADDRESS)envp, 0);\n");
     END;
@@ -418,6 +438,7 @@ PROCEDURE GenerateCGEntry (VAR s: State) =
     stat_proc : M3IR.Proc;
     exit_proc : M3IR.Proc;
     getenv    : M3IR.Proc;
+    get_environ: M3IR.Proc;
     winapi    : Target.CallingConvention;
     argv      : M3IR.Var;
     argc      : M3IR.Var;
@@ -499,6 +520,12 @@ PROCEDURE GenerateCGEntry (VAR s: State) =
                                        (*typeid*) 0);
     EVAL DeclareParam (s, "m", addr_t);
 
+    (* char **__wasilibc_get_environ (void); *)
+    IF Text.Equal (Target.System_name, "wasm32") THEN
+      get_environ := s.cg.import_procedure (M3ID.Add ("__wasilibc_get_environ"), 0,
+                                            addr_t, Target.DefaultCall, (*typeid*) 0);
+    END;
+
     stat_proc := s.cg.import_procedure (M3ID.Add ("nref_memstat"), 0,
                                        Target.IRType.Void, Target.DefaultCall,
                                        (*typeid*) 0);
@@ -542,25 +569,50 @@ PROCEDURE GenerateCGEntry (VAR s: State) =
       s.cg.store (envp, 0, addr_t, addr_t);
 
     ELSE (* not GUI *)
-      (*
-        int main (int argc, char **argv, char **envp)
-      *)
-      main := s.cg.declare_procedure (M3ID.Add("main"), (*n_params*) 3,
-                                      int_t, (*lev*) 0,
-                                      Target.DefaultCall, TRUE, NIL,
-                                      (*typeid*) 0);
-      argc := DeclareParam (s, "argc", int_t);
-      argv := DeclareParam (s, "argv", addr_t);
-      envp := DeclareParam (s, "envp", addr_t);
+      IF Text.Equal(Target.System_name, "wasm32") THEN
+        (*
+          int main (int argc, char **argv)
+        *)
+        main := s.cg.declare_procedure (M3ID.Add("main"), (*n_params*) 2,
+                                        int_t, (*lev*) 0,
+                                        Target.DefaultCall, TRUE, NIL,
+                                        (*typeid*) 0);
+        argc := DeclareParam (s, "argc", int_t);
+        argv := DeclareParam (s, "argv", addr_t);
+      ELSE
+        (*
+          int main (int argc, char **argv, char **envp)
+        *)
+        main := s.cg.declare_procedure (M3ID.Add("main"), (*n_params*) 3,
+                                        int_t, (*lev*) 0,
+                                        Target.DefaultCall, TRUE, NIL,
+                                        (*typeid*) 0);
+        argc := DeclareParam (s, "argc", int_t);
+        argv := DeclareParam (s, "argv", addr_t);
+        envp := DeclareParam (s, "envp", addr_t);
+      END;
       s.cg.begin_procedure(main);
 
       (* void * self; *)
       self := DeclareLocal (s, "self", addr_t);
-      
+
+      (* void * envp; *)
+      IF Text.Equal(Target.System_name, "wasm32") THEN
+        envp := DeclareLocal (s, "envp", addr_t);
+      END;
+
       (* self = 0; *)
       s.cg.set_source_line (src_line);  INC (src_line);
       s.cg.load_integer (int_t, TInt.Zero);
       s.cg.store (self, 0, int_t, int_t);
+
+      (* envp = __wasilibc_get_environ (); *)
+      IF Text.Equal(Target.System_name, "wasm32") THEN
+        s.cg.set_source_line (src_line);  INC (src_line);
+        s.cg.start_call_direct (get_environ, 0, addr_t);
+        s.cg.call_direct (get_environ, addr_t);
+        s.cg.store (envp, 0, addr_t, addr_t);
+      END;
 
       (* nref_prologue (argc, argv); *)
       s.cg.set_source_line (src_line);  INC (src_line);
