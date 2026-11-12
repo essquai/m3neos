@@ -1,12 +1,13 @@
 # Compilers
-set(CMAKE_C_COMPILER   clang-18   CACHE STRING "")
-set(CMAKE_CXX_COMPILER clang++-18 CACHE STRING "")
+set(CMAKE_C_COMPILER   clang-22   CACHE STRING "")
+set(CMAKE_CXX_COMPILER clang++-22 CACHE STRING "")
 
 # WAMR features
 set(WAMR_BUILD_LIBC_WASI        1 CACHE STRING "")
 set(WAMR_BUILD_LIB_PTHREAD      1 CACHE STRING "")
 set(WAMR_BUILD_LIB_WASI_THREADS 1 CACHE STRING "")
 set(WAMR_BUILD_SHARED_MEMORY    1 CACHE STRING "")
+set(WAMR_BUILD_EXCE_HANDLING    1 CACHE STRING "")
 
 
 # --- Debug / diagnostics (initial wasm bring-up) ---
