@@ -7,7 +7,7 @@
 include_dir ("Common")
 
 if not defined ("THREAD")
-  THREAD = "default"
+  THREAD = "P"
 end
 
 % FreeBSD 4 or earlier might not have a viable pthreads,
@@ -19,8 +19,7 @@ else
   if equal (TARGET, "wasm32") or equal (THREAD, "W")
     include_dir("WTHREAD")
   else
-    if equal (THREAD, "P") or not defined ("NOPTHREAD")
-      THREAD = "P"
+    if equal (THREAD, "P") and not defined ("NOPTHREAD")
       include_dir("PTHREAD")
     else
       include_dir (OS_TYPE)

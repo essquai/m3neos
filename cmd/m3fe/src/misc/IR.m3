@@ -361,10 +361,12 @@ PROCEDURE Declare_raises (n: Name) =
 
 PROCEDURE Declare_object (t, super: TypeUID;  brand: TEXT;  traced: BOOLEAN;
                            n_fields, n_methods : INTEGER;
-                           <*UNUSED*> n_overrides: INTEGER; field_size: Size) =
+                           <*UNUSED*> n_overrides: INTEGER; field_size: Size;
+                           field_offset, method_offset : INTEGER) =
   BEGIN
     cg.declare_object (t, super, brand, traced,
-                       n_fields, n_methods, field_size);
+                       n_fields, n_methods, field_size, field_offset,
+                       method_offset);
   END Declare_object;
 
 PROCEDURE Declare_method (n: Name;  signature: TypeUID;  <*UNUSED*> dfault: M3.Expr) =

@@ -1807,7 +1807,7 @@ PROCEDURE declare_raises (self: U; n: Name) =
     INC(procRef.raisesIdx);
   END declare_raises;
 
-PROCEDURE declare_object (self: U; t, super: TypeUID; brand: TEXT;  traced: BOOLEAN; n_fields, n_methods: INTEGER; field_size: BitSize; superTypeName : Name) =
+PROCEDURE declare_object (self: U; t, super: TypeUID; brand: TEXT;  traced: BOOLEAN; n_fields, n_methods: INTEGER; field_size: BitSize; <*UNUSED*> field_offset, method_offset: INTEGER; superTypeName : Name) =
   VAR
     objectRef,parentRef : ObjectDebug;
     superObj : REFANY;

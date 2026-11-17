@@ -10,7 +10,7 @@
 %      modified on Wed May 20 21:18:03 PDT 1992 by muller
 %      modified on Fri Feb 28 13:50:29 PST 1992 by meehan
 
-import ("neosys")
+import ("neocore")
 
 %----------------------------------------------- machine dependent packages ---
 
