@@ -417,6 +417,21 @@ PROCEDURE DumpModule (M: ModuleRef; ) =
     LLVMRaw.DumpModule(M);
   END DumpModule;
 
+PROCEDURE VerifyModule
+  (M: ModuleRef; Action: C.unsigned_int; VAR OutMessage: TEXT) : BOOLEAN =
+  VAR
+    arg3  : C.char_star;
+    result: BOOLEAN;
+  BEGIN
+    arg3   := NIL;
+    result := LLVMRaw.VerifyModule(M, Action, arg3);
+    IF arg3 # NIL THEN
+      OutMessage := M3toC.CopyStoT(arg3);
+      LLVMRaw.DisposeMessage(arg3);
+    END;
+    RETURN result;
+  END VerifyModule;
+
 PROCEDURE PrintModuleToFile
   (M: ModuleRef; Filename: TEXT; VAR ErrorMessage: TEXT; ): BOOLEAN =
   VAR
@@ -1825,6 +1840,19 @@ PROCEDURE ConstStringInContext (context          : ContextRef;
     M3toC.FreeSharedS(Str, arg2);
     RETURN result;
   END ConstStringInContext;
+
+PROCEDURE ConstOctetsInContext (context          : ContextRef;
+                                Oct              : octets_t;
+                                Length           : uint32_t;
+                                DontNullTerminate: BOOLEAN;    ):
+  ValueRef =
+  VAR
+    result: ValueRef;
+  BEGIN
+    result := LLVMRaw.ConstStringInContext(
+                context, Oct, Length, DontNullTerminate);
+    RETURN result;
+  END ConstOctetsInContext;
 
 PROCEDURE ConstStringInContext2 (context          : ContextRef;
                                  Str              : TEXT;

@@ -1,5 +1,4 @@
-import ("neosys")
-import ("neoaux")
+import ("neocore")
 
 implementation ("Main")
 

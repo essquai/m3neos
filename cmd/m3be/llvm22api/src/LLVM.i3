@@ -18,6 +18,7 @@ TYPE
   int32_t = LLVMTypes.int32_t;
   uint32_t = LLVMTypes.uint32_t;
   uint8_t = LLVMTypes.uint8_t;
+  octets_t = LLVMTypes.Octets_t;
 
 TYPE
   Opaque = RECORD END;
@@ -314,6 +315,12 @@ TYPE
      LLVMModuleFlagBehaviorAppendUnique (**   * Appends the two values, which are required to be metadata   * nodes. However, duplicate entries in the second list are dropped   * during the append operation.   *   * @see Module::ModFlagBehavior::AppendUnique   *)
     };
 
+TYPE
+  LLVMVerifierFailureAction =
+    {AbortProcessAction, (* verifier will print to stderr and abort() *)
+     PrintMessageAction, (* verifier will print to stderr and return 1 *)
+     ReturnStatusAction  (* verifier will just return 1 *)
+    };
 
 CONST                            (* Enum Enum1 *)
   LLVMAttributeReturnIndex   = 0;
@@ -841,6 +848,15 @@ PROCEDURE AddModuleFlag (M       : ModuleRef;
 
 PROCEDURE DumpModule (M: ModuleRef; );
 
+
+(**
+ * Verify a module. The ErrorMessage needs to be
+ * disposed with LLVMDisposeMessage. Returns 0 on success, 1 otherwise.
+ *
+ * @see Module::print()
+ *)
+PROCEDURE VerifyModule(M: ModuleRef; Action: uint32_t;
+                          VAR OutMessage: TEXT) : BOOLEAN;
 
 (**
  * Print a representation of a module to a file. The ErrorMessage needs to be
@@ -2400,6 +2416,21 @@ PROCEDURE ConstRealGetDouble
 
 PROCEDURE ConstStringInContext (context          : ContextRef;
                                 Str              : TEXT;
+                                Length           : uint32_t;
+                                DontNullTerminate: BOOLEAN;    ): ValueRef;
+
+(**
+ * @}
+ *
+ * Create a ConstantDataSequential and initialize it with octets.
+ *
+ * @deprecated LLVMConstStringInContext is deprecated in favor of the API
+ * accurate LLVMConstStringInContext2
+ * @see llvm::ConstantDataArray::getString()
+ *)
+
+PROCEDURE ConstOctetsInContext (context          : ContextRef;
+                                Octets           : octets_t;
                                 Length           : uint32_t;
                                 DontNullTerminate: BOOLEAN;    ): ValueRef;
 

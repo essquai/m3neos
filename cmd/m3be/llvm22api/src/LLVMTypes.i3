@@ -24,6 +24,7 @@ INTERFACE LLVMTypes
 ; TYPE uint32_t = Ctypes.unsigned_int  
 ; TYPE uint8_t = Ctypes.unsigned_char  
 ; TYPE Bool = BOOLEAN 
+; TYPE Octets_t = Ctypes.char_star
 (* NOTE: All the bindings to llvm assume a Modula3 BOOLEAN can be passed in
          and out to a C/C++ int and work as expected. *) 
 ; CONST False = FALSE 

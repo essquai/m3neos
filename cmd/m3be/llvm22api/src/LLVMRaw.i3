@@ -202,6 +202,11 @@ PROCEDURE AddModuleFlag (M       : ADDRESS;
 <* EXTERNAL LLVMDumpModule *>
 PROCEDURE DumpModule (M: ADDRESS; );
 
+<* EXTERNAL LLVMVerifyModule *>
+PROCEDURE VerifyModule
+  (M: ADDRESS; Action: C.unsigned_int; VAR OutMessage: C.char_star; ):
+  BOOLEAN;
+
 <* EXTERNAL LLVMPrintModuleToFile *>
 PROCEDURE PrintModuleToFile
   (M: ADDRESS; Filename: C.char_star; VAR ErrorMessage: C.char_star; ):

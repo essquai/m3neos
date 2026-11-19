@@ -52,6 +52,7 @@ def parse(body, params):
     for line in body:
         s = line.strip()
         if not s or s.startswith(';'): continue
+        if s.startswith('#dbg_'): continue   # LLVM >= 19 debug records (replace llvm.dbg.* calls); not real uses
         m = re.match(r'([\w.$-]+):', s)
         if m and not s.startswith('%'):
             if m.group(1) != 'entry' or blocks['entry']['ins']: newblock(m.group(1))
