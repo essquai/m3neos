@@ -15,7 +15,11 @@ Interface ("LLVM")
 Interface ("LLVMTypes") 
 Interface ("DwarfConst") 
 Module    ("M3DebugInfoRaw") 
-Module    ("M3DebugInfo") 
+Module    ("M3DebugInfo")
+
+include("version.quake")
+version_impl("Version")
+
 
 % set the location of posix libraries llvm depends on
 % actually only for linux. if other implementations use this, would need to
@@ -30,7 +34,7 @@ LLVM_LIB_DIR = LIB_DIR2
   import_lib("termcap",LIB_DIR1)
   import_lib("dl",LIB_DIR1)
   import_lib("z",LIB_DIR1)
-  import_lib("stdc++",LIB_DIR2)
+  import_lib("stdc++",LIB_DIR1)
 
 /* 
   LLVM library order is important and hard to get correct with
@@ -42,7 +46,7 @@ LLVM_LIB_DIR = LIB_DIR2
 
 proc llvmlibs() is
 
-      local libnames = q_exec_get ("llvm-config --libnames")
+      local libnames = q_exec_get ("llvm-config-18 --libnames")
       local lib_arr = split(skipr(libnames[1])," ")
       
       local lib_tab = {}

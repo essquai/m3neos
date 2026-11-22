@@ -5,7 +5,7 @@ IMPORT IO, Process, Rd, Stdio, Text, Wr;
 IMPORT Params;
 
 IMPORT IRIO_Rd, IRIO_BinRd, MxConfig, Target;
-IMPORT LLVM_HOST;
+IMPORT LLVM_HOST, Version;
 
 
 CONST DefaultBinOutFileName = "m3test.ll";
@@ -317,13 +317,12 @@ PROCEDURE GetParams () =
     END (*IF*);
   END GetParams;
 
-CONST VersionString = "0.1";
-
 PROCEDURE DisplayVersion () =
   BEGIN
     IO.Put(GExecutableName);
-    IO.Put(" (llvm22): standalone converter from cm3 IR to llvm IR, version ");
-    IO.Put(VersionString);
+    IO.Put(" (" & Version.LLVMVER  & "):");
+    IO.Put(" standalone converter from cm3 IR to llvm IR, version ");
+    IO.Put(Version.CM3VER);
     IO.Put(" ");
     IO.Put(Wr.EOL);
   END DisplayVersion;

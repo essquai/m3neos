@@ -400,15 +400,19 @@ TYPE
          params and locals declared so far that are uplevel-referenced.  After
          begin_procedure, also includes those of all static ancestor procs as
          well. *)
+      isFinallyHandler: BOOLEAN := FALSE;
+      (* ^An internally-generated FINALLY procedure.  CG emits one nameless
+         formal for it, the activation, which is not a static link.  CG emits
+         no actual for it in a direct call, so start_call_direct supplies a
+         NIL, as M3C does.  The runtime passes the real activation when it
+         calls the handler indirectly. *)
       staticLinkFormal: LvVar := NIL; (* ptr *)
-      (* ^For most procedures, CG emits neither a static link formal nor an
-         actual for it in a call.  We provide these, for a nested procedure.
-         For an internally-generated FINALLY procedure, CG emits an explicit
-         formal for a static link, which we just use, but CG does not emit an
-         actual parameter for in it a call, so we provide that too.  CG does,
-         however, explicitly pass a SL value to the runtime, when pushing a
-         FINALLY frame, and this SL will be passed by the runtime when it calls
-         the FINALLY procedure.  This really would be more consistend as i8**,
+      (* ^CG emits neither a static link formal nor an actual for it in a
+         call.  We provide these, for every nested procedure, as the leftmost
+         formal.  CG does explicitly pass a SL value to the runtime, when
+         pushing a FINALLY frame, and this SL will be passed by the runtime when
+         it calls the FINALLY procedure.  This really would be more consistend
+         as i8**,
          but CG makes assignments between this and things CG types as Addr, that
          are not easily identifiable as static link values.  So we have to type
          static links as i8* *)
@@ -1217,10 +1221,14 @@ PROCEDURE IntrinsicFuncCall (m3Id      : M3Intrinsic;
     RETURN res;
   END IntrinsicFuncCall;
 
-PROCEDURE CGProvidedStaticLinkFormal (proc: LvProc): LvVar =
-  (* Return the LvVar of the front-end-generated static link formal parameter of
-     proc, if it has one, otherwise NIL.  This happens only for an internally
-     generated FINALLY procedure, by CG.  Making a pretty big assumption here.
+PROCEDURE IsFinallyHandler (proc: LvProc): BOOLEAN =
+  (* TRUE if proc is an internally generated FINALLY handler, by CG.  Such a
+     handler has one nameless formal, the "activation" (a RaiseActivation
+     address): the runtime passes it, and the handler body reads it to set up
+     Compiler.ThisException().  It is NOT the static link.  M3C, the reference
+     backend, treats it the same way, and so the runtime's
+     RTExFrame.InvokeFinallyHandler calls the handler as p(a), with the static
+     link added by the call mechanism.  Making a pretty big assumption here.
      The criterion is proc is nested, has exactly one formal, and the formal is
      nameless. *)
   VAR
@@ -1230,10 +1238,10 @@ PROCEDURE CGProvidedStaticLinkFormal (proc: LvProc): LvVar =
     IF proc.lev > 0 AND proc.paramStack.size() = 1 THEN
       arg := Get(proc.paramStack);
       param := NARROW(arg, LvVar);
-      IF param.name = M3ID.NoID THEN RETURN param; END;
+      RETURN param.name = M3ID.NoID;
     END;
-    RETURN NIL;
-  END CGProvidedStaticLinkFormal;
+    RETURN FALSE;
+  END IsFinallyHandler;
 
 (* Create Llvm declarations for this procedure and all its parameters.  This is
    enough to handle calls and assignments of it, without requiring that its body
@@ -1261,24 +1269,21 @@ PROCEDURE BuildFunc (self: U; p: Proc) =
          be used until we finish its body, but there can be calls on it before
          that.  Besides, decent debugger behavour needs it, even if generated
          code does not.*)
-      param := CGProvidedStaticLinkFormal(mlProc);
-      IF param # NIL THEN        (* CG already provided it.  Give it a name and
-                                    note its identity. *)
-        paramTextName := "__CG_StaticLinkFormal";
-        param.name := M3ID.Add(paramTextName);
-        mlProc.staticLinkFormal := param
-      ELSE                       (* Create a static link formal. *)
-        paramTextName := "__m3llvm_StaticLinkFormal";
-        name := M3ID.Add(paramTextName);
-        mlProc.staticLinkFormal  (* ptr *)
-          := NewVar(self, name, ptrBytes, ptrBytes, Type.Addr, isConst := TRUE,
-                    m3t := UID_ADDR, in_memory := TRUE, up_level := FALSE,
-                    exported := FALSE, inited := FALSE, frequency := M3IR.Maybe,
-                    varType := VarType.Param);
-        Push(mlProc.paramStack, mlProc.staticLinkFormal); (* Make it leftmost
-                                                             formal. *)
-        INC(mlProc.numParams);
-      END;
+      (* Note a FINALLY handler: its one nameless formal is the activation and
+         stays an ordinary formal.  Direct calls get a NIL actual for it (see
+         start_call_direct), as M3C does. *)
+      mlProc.isFinallyHandler := IsFinallyHandler(mlProc);
+      (* Create a static link formal, leftmost. *)
+      paramTextName := "__m3llvm_StaticLinkFormal";
+      name := M3ID.Add(paramTextName);
+      mlProc.staticLinkFormal    (* ptr *)
+        := NewVar(self, name, ptrBytes, ptrBytes, Type.Addr, isConst := TRUE,
+                  m3t := UID_ADDR, in_memory := TRUE, up_level := FALSE,
+                  exported := FALSE, inited := FALSE, frequency := M3IR.Maybe,
+                  varType := VarType.Param);
+      Push(mlProc.paramStack, mlProc.staticLinkFormal); (* Make it leftmost
+                                                           formal. *)
+      INC(mlProc.numParams);
       (* Here, we have not necessarily seen mlProc's body, thus don't know the
          display size or the true type of the static link.  We just make all
          static link formals i8** and bitcast uses, as needed. *)
@@ -4886,6 +4891,11 @@ PROCEDURE start_call_direct
     self.buildFunc(p);
     self.callState := callStateTyp.insideDirect;
     self.abortInCall := FALSE;
+    IF proc.isFinallyHandler THEN
+      (* CG passes no actual for the handler's activation formal on a direct
+         call (see TryFinStmt.Compile2).  Pass NIL, as M3C does. *)
+      PushRev(self.callStack, NEW(LvExpr, lVal := LLVM.ConstNull(AdrTy)));
+    END;
   END start_call_direct;
 
 PROCEDURE Is_alloca (self: U; p: LvProc): BOOLEAN =

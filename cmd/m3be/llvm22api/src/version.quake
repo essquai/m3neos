@@ -50,7 +50,7 @@ proc version_impl(name) is
     local tempname = "_m3temp_" & filename
     local ret = 0
 
-    llvmv = q_exec_get ("llvm-config --version")
+    llvmv = q_exec_get ("llvm-config-22 --version")
     llvmver =skipr(llvmv[1]) 
 
     if not defined("_all")
@@ -66,11 +66,12 @@ proc version_impl(name) is
     > tempname in
         write("INTERFACE ", name, ";", CR)
     end
+    include(".." & SL & ".." & SL & ".." & SL & ".." & SL &"etc" & SL & "m3neos.release")
 
 
     >> tempname in
         write("CONST", CR)
-        write("  CM3VER = \"", "M.m", "\";", CR)
+        write("  CM3VER = \"", MM3VERSION, "\";", CR)
         write("  LLVMVER = \"", llvmver, "\";", CR)
         write("  M3_STACK_WALKER = \"", M3_STACK_WALKER, "\";", CR)
         write("END ", name, ".", CR)

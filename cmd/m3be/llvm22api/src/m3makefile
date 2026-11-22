@@ -15,7 +15,10 @@ Interface ("DwarfConst")
 Module    ("LLVMRaw") 
 Module    ("LLVM") 
 Module    ("M3DebugInfoRaw") 
-Module    ("M3DebugInfo") 
+Module    ("M3DebugInfo")
+
+include("version.quake")
+version_impl("Version")
 
 % The version of this binding. Should agree with users installed version.
 VER = "22"
@@ -33,11 +36,6 @@ import_lib("z",LIB_DIR2)
 % apt-get install libzstd-dev
 import_lib("zstd",LIB_DIR2)
 
-%  these should not be needed
-%  import_lib("dl",LIB_DIR1)
-%  import_lib("curses",LIB_DIR1)
-%  import_lib("termcap",LIB_DIR1)
-
 
 /* 
   Import the LLVM libraries using llvm-config.
@@ -51,14 +49,14 @@ import_lib("zstd",LIB_DIR2)
 proc llvmlibs() is
 
       % get the location of the llvm libraries
-      local llvm_libdir = q_exec_get ("llvm-config --libdir")
+      local llvm_libdir = q_exec_get ("llvm-config-22 --libdir")
       local libdir= skipr(llvm_libdir[1])
 
       % get the full list of lib names of which we only use a small number
       %we only use components Core Target BitWriter TransformUtils which could
       %be used to restrict the --libs in case of llvm build with multiple
       %static libs but some distributions only generate the single LLVMLib
-      local libnames = q_exec_get ("llvm-config --libs")
+      local libnames = q_exec_get ("llvm-config-22 --libs")
       local lib_arr = split(skipr(libnames[1])," ")
 
       local lib_tab = {}
@@ -86,7 +84,7 @@ end
 %if this fails (llvm-config not found) check if your path
 %is set to the installed bin dir for llvm
 proc llvmver() is
-      local llvm_version = q_exec_get ("llvm-config --version")
+      local llvm_version = q_exec_get ("llvm-config-22 --version")
       local ver_arr = split(skipr(llvm_version[1]),".")
       local ver = ver_arr[0]
       if not equal(ver, VER)
