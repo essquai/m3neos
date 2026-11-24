@@ -10,12 +10,13 @@
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-SYSROOT = "/opt/wasi-sysroot-24.0"
+SYSROOT = "/opt/wasi-sysroot-33.0"
 CC_FLAGS = " --target=wasm32-wasip1-threads"
   & " --sysroot=" & SYSROOT
   & " -pthread -matomics"
   & " -D_WASI_EMULATED_SIGNAL -D_WASI_EMULATED_MMAN"
-  & " -mexception-handling"
+  & " -mexception-handling -mllvm -wasm-enable-sjlj"
+  & " -mllvm -wasm-use-legacy-eh=true"
 
 SYSTEM_CC   = "clang -g" & CC_FLAGS
 SYSTEM_CXXC = "clang++ -g" & CC_FLAGS
@@ -63,6 +64,7 @@ SYSTEM_LD = SYSTEM_CXXXC
   & LD_PREF
   & " -Wl,--fatal-warnings"
   & " -Wl,--shared-memory,--import-memory,--max-memory=" & MAX_MEMORY
+  & " -lsetjmp"
   & WASI_LIBS
 
 % disable shared libraries for wasm32
@@ -76,7 +78,8 @@ llvmback_pic = "-relocation-model=static"
 
 % Must match the C side (-pthread -matomics): wasm-ld --shared-memory rejects
 % objects built without atomics/bulk-memory.
-llvmback_features = "-mattr=+atomics,+bulk-memory,+mutable-globals"
+llvmback_features = "-mattr=+atomics,+bulk-memory,+mutable-globals,+exception-handling"
+  & " -exception-model=wasm -wasm-enable-sjlj -wasm-use-legacy-eh=true"
 
 include("Unix.common")
 

@@ -20,6 +20,7 @@ IMPORT Text;
 IMPORT TextExtras;
 IMPORT TextRefTbl;
 IMPORT TextSeq;
+IMPORT LLVMPasses;
 IMPORT Version;
 IMPORT Word;
 IMPORT Wr;
@@ -1111,6 +1112,25 @@ PROCEDURE EnumAttr (name: TEXT; val: LONGINT := 0L): LLVM.AttributeRef =
     RETURN LLVM.CreateEnumAttribute(ctx, attrKind, val);
   END EnumAttr;
 
+(* wasm32: mark a call site 'nounwind' so that LLVM's shadow-stack GC lowering
+   (which runs after the wasm sjlj pass) does not turn it into an invoke with a
+   gc_cleanup landingpad.  The wasm backend cannot select Itanium-style
+   landingpads with -exception-model=wasm (llc-22 crashes in instruction
+   selection), and M3 exceptions are setjmp/longjmp, which run no cleanups
+   anyway.  The attribute goes on the call site, not on the callee: the sjlj
+   pass removes nounwind from every call it converts, and from its callee, in a
+   function containing setjmp, so a callee attribute would be lost module-wide.
+   Calls in a function that has setjmp are converted to invokes by the sjlj
+   pass regardless (it does not look at nounwind). *)
+PROCEDURE NoUnwindCallSite (self: U; call: LLVM.ValueRef): LLVM.ValueRef =
+  BEGIN
+    IF self.isWasm THEN
+      LLVM.AddCallSiteAttribute
+        (call, LLVM.LLVMAttributeFunctionIndex, EnumAttr("nounwind"));
+    END;
+    RETURN call;
+  END NoUnwindCallSite;
+
 PROCEDURE TypeAttr (name: TEXT; type: LLVM.TypeRef): LLVM.AttributeRef =
   VAR attrKind: CARDINAL;
   BEGIN
@@ -1464,7 +1484,7 @@ PROCEDURE BuildFunc (self: U; p: Proc) =
 
 PROCEDURE DumpLLVMIR
   (<* UNUSED *> self: U; BitcodeFileName, AsmFileName: TEXT) : TEXT =
-  VAR msg: TEXT := NIL;
+  VAR msg: TEXT := NIL; passMsg: TEXT := NIL;
   BEGIN
     (* Verify the module *)
     IF LLVM.VerifyModule(modRef, ORD(LLVM.LLVMVerifierFailureAction.PrintMessageAction), msg) THEN
@@ -1475,6 +1495,14 @@ PROCEDURE DumpLLVMIR
       EVAL LLVM.PrintModuleToFile(modRef, AsmFileName, msg);
     END (*IF*);
     IF BitcodeFileName # NIL THEN
+      (* On wasm32, llc's sjlj lowering (-wasm-enable-sjlj) runs before the
+         shadow-stack GC lowering and turns calls in a setjmp function into
+         invokes with a scoped-EH personality, which the latter cannot handle
+         ("Scoped EH not supported").  So lower the gcroots here, ahead of
+         llc.  The .ll written above keeps the llvm.gcroot form (audit.py). *)
+      IF LLVMPasses.RunPasses(modRef, "shadow-stack-gc-lowering", passMsg) THEN
+        IF msg = NIL THEN msg := passMsg ELSE msg := msg & "; " & passMsg END;
+      END (*IF*);
       EVAL LLVM.WriteBitcodeToFile(modRef, BitcodeFileName);
     END (*IF*);
     RETURN msg;
@@ -2972,7 +3000,8 @@ PROCEDURE LoadWatch (): LLVM.ValueRef =
     EVAL LLVM.BuildCondBr (builderIR, c1, park, cont);
 
     LLVM.PositionBuilderAtEnd (builderIR, park);
-    EVAL LLVM.BuildCall2 (builderIR, parkType, parkFunc, NIL, 0, "");
+    EVAL NoUnwindCallSite
+           (self, LLVM.BuildCall2 (builderIR, parkType, parkFunc, NIL, 0, ""));
     EVAL LLVM.BuildBr (builderIR, cont);
 
     LLVM.PositionBuilderAtEnd (builderIR, cont);      (* caller continues here *)
@@ -3006,7 +3035,9 @@ PROCEDURE import_procedure (             self          : U;
     name := M3ID.ToText(p.name);
     p.lvProc := LLVM.AddFunction(modRef, name, p.procTy);
 
-    IF Text.Equal(name, "_setjmp") THEN p.returnsTwice := TRUE; END;
+    IF Text.Equal(name, "_setjmp") OR Text.Equal(name, "setjmp") THEN
+      p.returnsTwice := TRUE;
+    END;
 
     IF cc.m3cg_id = Target.STDCALL THEN
       LLVM.SetInstructionCallConv(
@@ -4452,7 +4483,7 @@ PROCEDURE GetSetStackVals
   END GetSetStackVals;
 
 (* declare and call a set function *)
-PROCEDURE SetCall (<* UNUSED *>     self          : U;
+PROCEDURE SetCall (                 self          : U;
                                     name          : TEXT;
                                 VAR fn            : LLVM.ValueRef;
                                     numParams     : INTEGER;
@@ -4498,7 +4529,8 @@ PROCEDURE SetCall (<* UNUSED *>     self          : U;
     paramsArr[1] := p2;
     paramsArr[2] := p3;
     paramsArr[3] := p4;
-    res := LLVM.BuildCall2(builderIR, procTy, fn, paramsRef, numParams, "");
+    res := NoUnwindCallSite
+             (self, LLVM.BuildCall2(builderIR, procTy, fn, paramsRef, numParams, ""));
     IF cc # NIL AND cc.m3cg_id = Target.STDCALL THEN
       LLVM.SetInstructionCallConv(
         res, ORD(LLVM.LLVMCallConv.LLVMX86StdcallCallConv));
@@ -5327,8 +5359,9 @@ PROCEDURE abort (self: U; code: RuntimeError) =
     codeVal := LLVM.ConstInt(IntPtrTy, VAL(ORD(codeAndLine), LONGINT), TRUE);
     paramsArr[0] := self.globalDataVar.lv;
     paramsArr[1] := codeVal;
-    EVAL LLVM.BuildCall2(builderIR, self.abortFunc.procTy,
-                         self.abortFunc.lvProc, paramsRef, numParams, "");
+    EVAL NoUnwindCallSite
+           (self, LLVM.BuildCall2(builderIR, self.abortFunc.procTy,
+                                  self.abortFunc.lvProc, paramsRef, numParams, ""));
   END abort;
 
 PROCEDURE DoCheck
@@ -5637,8 +5670,9 @@ PROCEDURE call_invoke_direct (             self         : U;
     (* else void returns need null string *)
 
     IF call THEN
-      lVal := LLVM.BuildCall2(builderIR, calleeProc.procTy, fn, paramsRef,
-                              passedParamsCt, returnName);
+      lVal := NoUnwindCallSite
+                (self, LLVM.BuildCall2(builderIR, calleeProc.procTy, fn,
+                                       paramsRef, passedParamsCt, returnName));
     ELSE
       then_tmp := LLVM.CreateBasicBlockInContext(ctx, "invoke_tmp");
       catchLab := self.getLabel(handler, "catch_" & ItoT(handler));
@@ -5808,8 +5842,9 @@ PROCEDURE InnerCallIndirect (             self         : U;
     funcPtrTy := LLVM.PointerType(funcTy);
     callVal := LLVM.BuildBitCast(builderIR, proc, funcPtrTy, "call_ind");
     IF call THEN
-      resultVal := LLVM.BuildCall2(builderIR, funcTy, callVal, paramsRef,
-                                   numFormals, returnName);
+      resultVal := NoUnwindCallSite
+                     (self, LLVM.BuildCall2(builderIR, funcTy, callVal, paramsRef,
+                                            numFormals, returnName));
     ELSE
       catchLab := self.getLabel(handler, "catch_" & ItoT(handler));
       (* tag the catch label so that no jumps can be made to it.  See
