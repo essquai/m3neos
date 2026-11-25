@@ -99,10 +99,15 @@ def parse(body, params):
         nonlocal curb
         curb = n; blocks[n] = {'ins': [], 'succ': []}; order.append(n)
     newblock('entry')
+    in_sw = False    # inside the case list of a multi-line `switch ... [ ... ]`
     for line in body:
         s = line.strip()
         if not s or s.startswith(';'): continue
         if s.startswith('#dbg_'): continue   # LLVM >= 19 debug records (replace llvm.dbg.* calls); not real uses
+        if in_sw:   # case lines are part of the switch: they carry its successor labels and are not instructions
+            for l in re.findall(r'label\s+%([\w.$-]+)', s): blocks[curb]['succ'].append(l)
+            if s.startswith(']'): in_sw = False
+            continue
         m = re.match(r'([\w.$-]+):', s)
         if m and not s.startswith('%'):
             if m.group(1) != 'entry' or blocks['entry']['ins']: newblock(m.group(1))
@@ -110,8 +115,12 @@ def parse(body, params):
         d = re.match(r'(%[\w.$-]+)\s*=\s*(.*)', s)
         res, rhs = (d.group(1), d.group(2)) if d else (None, s)
         ins = {'res': res, 'rhs': rhs, 'type': result_type(rhs) if res else None, 'line': s}
-        op = re.match(r'(?:tail\s+)?(\w+)', rhs).group(1)
+        mo = re.match(r'(?:tail\s+)?(\w+)', rhs)
+        op = mo.group(1) if mo else '?'
         ins['op'] = op
+        if op == 'phi':   # incoming (value text, predecessor label) pairs; the value may be a constant expression
+            ins['phi'] = re.findall(r'\[\s*(.*?)\s*,\s*%([\w.$-]+)\s*\]', rhs)
+        if op == 'switch' and '[' in rhs and not re.search(r'\]\s*$', rhs): in_sw = True
         blocks[curb]['ins'].append(ins)
         if op in ('br', 'switch', 'invoke'):
             for l in re.findall(r'label\s+%([\w.$-]+)', rhs): blocks[curb]['succ'].append(l)
@@ -121,6 +130,7 @@ def parse(body, params):
 
 def uses_of(ins):
     rhs = ins['rhs']
+    if rhs.startswith('phi'): return []   # phi operands are uses on the incoming edge, see edge_uses in analyse()
     if rhs.startswith('call') or rhs.startswith('tail call'):
         if re.search(r'@llvm\.dbg\.', rhs): return []
     rhs2 = re.sub(r'label\s+%[\w.$-]+', '', rhs)
@@ -208,6 +218,15 @@ def analyse(fname, params, body, exempt=None):
                 if n in ptrs and n not in d: u.add(n)
             if ins['res'] in ptrs: d.add(ins['res'])
         use[b], dfn[b] = u, d
+    # a phi takes each operand on the edge from one predecessor: the operand is live-out of that predecessor only.
+    # (Counting it as a use in the phi's block made every operand live along all other paths too.)
+    edge_uses = defaultdict(set)
+    for b in order:
+        for ins in blocks[b]['ins']:
+            if ins['op'] == 'phi':
+                for val, pl in ins.get('phi', []):
+                    for n in NAME.findall(val):
+                        if n in ptrs: edge_uses[(pl, b)].add(n)
     live_in = {b: set() for b in order}; live_out = {b: set() for b in order}
     changed = True
     while changed:
@@ -216,6 +235,7 @@ def analyse(fname, params, body, exempt=None):
             out = set()
             for s in blocks[b]['succ']:
                 if s in live_in: out |= live_in[s]
+                out |= edge_uses.get((b, s), set())
             inn = use[b] | (out - dfn[b])
             if out != live_out[b] or inn != live_in[b]:
                 live_out[b], live_in[b] = out, inn; changed = True

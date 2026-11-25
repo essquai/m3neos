@@ -47,11 +47,11 @@ void nthr_start32(int tid, nthr_context_t *ctxt) {
      * check whether a safePoint was invoked while this thread spawns
      */
     if (safePoint) {
-      printf("nthr_func tid=%d nexus park\n", ctxt->tid); fflush(NULL);
+      // printf("nthr_func tid=%d nexus park\n", ctxt->tid); fflush(NULL);
       nthr_park();
     } else {
       nsyn_broadcast(&nx->watchSyn);
-      printf("nthr_func tid=%d nexus broadcast\n", ctxt->tid); fflush(NULL);
+      // printf("nthr_func tid=%d nexus broadcast\n", ctxt->tid); fflush(NULL);
     }
 
 
@@ -70,7 +70,7 @@ void nthr_start32(int tid, nthr_context_t *ctxt) {
     nsyn_lock(ctxt->outerSyn);
     joinSyn = ctxt->joinSyn;
     nsyn_unlock(ctxt->outerSyn);
-    printf("nthr_func end tid=%d join=%p live=%d\n", nthr_current->tid, joinSyn, watch); fflush(NULL);
+    // printf("nthr_func end tid=%d join=%p live=%d\n", nthr_current->tid, joinSyn, watch); fflush(NULL);
     if (joinSyn) {
         nsyn_lock(joinSyn);
         nsyn_signal(joinSyn);

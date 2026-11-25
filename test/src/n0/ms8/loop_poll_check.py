@@ -36,9 +36,14 @@ def parse(body):
         nonlocal cur
         cur = n; blocks[n] = {'ins': [], 'succ': []}; order.append(n)
     nb('entry')
+    in_sw = False    # inside the case list of a multi-line `switch ... [ ... ]`
     for line in body:
         s = line.strip()
         if not s or s.startswith(';') or s.startswith('#dbg'): continue
+        if in_sw:   # case lines carry the switch's successor labels
+            blocks[cur]['succ'] += re.findall(r'label\s+%([\w.$-]+)', s)
+            if s.startswith(']'): in_sw = False
+            continue
         m = re.match(r'([\w.$-]+):', s)
         if m and not s.startswith('%'):
             if m.group(1) != 'entry' or blocks['entry']['ins']: nb(m.group(1))
@@ -46,6 +51,7 @@ def parse(body):
         blocks[cur]['ins'].append(s)
         if re.match(r'(br|switch|invoke)\b', s):
             blocks[cur]['succ'] += re.findall(r'label\s+%([\w.$-]+)', s)
+            if s.startswith('switch') and '[' in s and not re.search(r'\]\s*$', s): in_sw = True
     return blocks, order
 
 def scc(nodes, succ):
