@@ -9,27 +9,77 @@ to stack/static memory (alloca/global-rooted address) by a store that dominates 
 Safepoint = any call/invoke except llvm.* intrinsics (conservative: includes the nthr_park poll call).
 Usage: audit.py file.ll [--detail] [--main-only]
   Default: analyse EVERY function in the file.  --main-only restricts to Main__* and Loque* (the ms8 test program).
-  The last line gives the totals; a gate passes only if 'not homed' is 0 and at least one function was analysed.
+  The last line gives the totals; a gate passes only if 'not homed' is 0, 'violations' is 0 and at least one function
+  was analysed.
+
+By-value aggregate parameters (exemption).  A by-value aggregate is passed as a pointer to the CALLER's temporary (the
+front end's pop_struct copy), and the callee gets no slot for it (plan v10).  That parameter is a stack address, not a
+heap reference, so it needs no home; the references inside the aggregate sit in the caller's frame, which the scan
+covers.  m3llwasm marks exactly these parameters: it sets a parameter alignment only when param.type = Type.Struct
+(LLVM_WASM.m3, 'SetParamAlignment'), and 'byval' if llvmByval is ever enabled, so a pointer parameter carrying `align N`
+or `byval` is a by-value aggregate, whoever calls it (direct, indirect, other module).  An unhomed pointer parameter
+with that marker is reported as 'exempt' (not counted as 'not homed').  As a cross-check on the convention, every DIRECT
+call site visible in the file must pass, at that position, an alloca (or a GEP chain rooted at one), a global address,
+or the caller's own by-value parameter.  A call site that passes anything else is a violation: the parameter stays
+'not homed' and the site is reported.  Exempt pairs are still listed (once per function and parameter) and counted on
+the TOTAL line, so nothing is hidden.  Weakness: if the back end ever puts `align` on a non-aggregate pointer parameter
+the exemption would hide a real miss; the marker is only as good as that one line of the back end.
 """
 import re, sys
-from collections import defaultdict
+from collections import defaultdict, Counter
 
 NAME = re.compile(r'%[\w.$-]+')
 DETAIL = '--detail' in sys.argv
 
 def split_functions(text):
-    funcs, cur, name, params = [], None, None, ''
+    funcs, cur, name, params, link = [], None, None, '', ''
     for line in text.splitlines():
         if cur is None:
-            m = re.match(r'define [^@]*@([\w.$-]+)\((.*)\)[^{]*\{\s*$', line)
+            m = re.match(r'(define [^@]*)@([\w.$-]+)\((.*)\)[^{]*\{\s*$', line)
             if m:
-                name, params, cur = m.group(1), m.group(2), []
+                link, name, params, cur = m.group(1), m.group(2), m.group(3), []
         else:
             if line.startswith('}'):
-                funcs.append((name, params, cur)); cur = None
+                funcs.append((name, params, cur, link)); cur = None
             else:
                 cur.append(line)
     return funcs
+
+def split_top(s):
+    """split on commas that are not inside (), [], {} or <>"""
+    out, depth, cur = [], 0, ''
+    for ch in s:
+        if ch in '([{<': depth += 1
+        elif ch in ')]}>': depth -= 1
+        if ch == ',' and depth == 0: out.append(cur); cur = ''
+        else: cur += ch
+    if cur.strip(): out.append(cur)
+    return out
+
+def param_list(params):
+    """one (name, is_ptr, by_value) per declared parameter, in order.  name is None for '...'.  by_value is True for a
+    pointer parameter carrying `align` or `byval` (the back end's marker for a by-value aggregate, see the docstring)"""
+    out = []
+    for a in split_top(params):
+        toks = a.split()
+        name = toks[-1] if toks and toks[-1].startswith('%') else None
+        is_ptr = bool(toks) and toks[0] == 'ptr'
+        marked = is_ptr and any(t == 'byval' or t.startswith('byval(') or t == 'align' for t in toks[1:])
+        out.append((name, is_ptr, marked))
+    return out
+
+def call_target_args(rhs):
+    """(callee name without '@', [argument value tokens]) for a call/invoke line, or None"""
+    m = re.search(r'@([\w.$-]+)\(', rhs)
+    if not m: return None
+    i, depth = m.end(), 1
+    j = i
+    while j < len(rhs) and depth:
+        if rhs[j] == '(': depth += 1
+        elif rhs[j] == ')': depth -= 1
+        j += 1
+    args = [a.split()[-1] if a.split() else '' for a in split_top(rhs[i:j - 1])]
+    return m.group(1), args
 
 def result_type(rhs):
     if rhs.startswith('alloca'): return 'ptr'
@@ -65,7 +115,8 @@ def parse(body, params):
         blocks[curb]['ins'].append(ins)
         if op in ('br', 'switch', 'invoke'):
             for l in re.findall(r'label\s+%([\w.$-]+)', rhs): blocks[curb]['succ'].append(l)
-    pnames = [(m.group(2)) for m in re.finditer(r'(ptr)\s+(?:\w+\s+)*?(%[\w.$-]+)', params)]
+    # pointer parameters, split on top-level commas so attributes with parentheses (byval(%T), dereferenceable(8)) don't hide one
+    pnames = [n for n, is_ptr, _ in param_list(params) if is_ptr and n]
     return blocks, order, pnames
 
 def uses_of(ins):
@@ -86,13 +137,66 @@ def callee(ins):
     m = re.search(r'(@[\w.$-]+|%[\w.$-]+)\(', ins['rhs'])
     return m.group(1) if m else '?'
 
-def analyse(fname, params, body):
-    blocks, order, pnames = parse(body, params)
+def build_deftab(blocks, order, pnames):
     deftab = {}          # name -> (block, idx, ins)
     for p in pnames: deftab[p] = ('param', -1, None)
     for b in order:
         for i, ins in enumerate(blocks[b]['ins']):
             if ins['res']: deftab[ins['res']] = (b, i, ins)
+    return deftab
+
+def root_kind(n, deftab, depth=0):
+    """follow GEP/bitcast chains to a root kind"""
+    if n.startswith('@'): return 'static'
+    if depth > 12 or n not in deftab: return 'unknown'
+    b, i, ins = deftab[n]
+    if b == 'param': return 'param'
+    if ins['op'] == 'alloca': return 'stack'
+    if ins['op'] in ('getelementptr', 'addrspacecast'):
+        m = re.search(r'getelementptr[^,]*,\s*(?:\S+\s+)*?ptr\s+(%[\w.$-]+|@[\w.$-]+)', ins['rhs'])
+        if m: return root_kind(m.group(1), deftab, depth + 1)
+    if ins['op'] == 'load': return 'loaded'
+    if ins['op'] == 'call': return 'call'
+    return 'other'
+
+def byvalue_params(funcs):
+    """Pre-pass over the whole module.  Returns (exempt, violations).
+    exempt:     fname -> {param name: number of direct call sites checked}   (marked by-value parameters)
+    violations: fname -> {param name: [(caller, what the call site passes), ...]}  (marked, but a direct call site
+                passes something that is not a stack/static address or the caller's own by-value parameter)
+    A parameter in 'violations' is NOT in 'exempt'."""
+    defined = {f[0]: param_list(f[1]) for f in funcs}
+    sites = defaultdict(list)        # callee -> [(caller, [(value token, root kind)])]
+    for fname, params, body, link in funcs:
+        blocks, order, pnames = parse(body, params)
+        deftab = build_deftab(blocks, order, pnames)
+        mine = {n for n, _, m in defined[fname] if m and n}
+        for b in order:
+            for ins in blocks[b]['ins']:
+                if ins['op'] not in ('call', 'invoke'): continue
+                t = call_target_args(ins['rhs'])
+                if not t or t[0] not in defined: continue
+                args = []
+                for a in t[1]:
+                    k = root_kind(a, deftab) if a[:1] in '%@' else 'other'
+                    if k == 'param' and a in mine: k = 'byval-param'
+                    args.append((a, k))
+                sites[t[0]].append((fname, args))
+    exempt, violations = {}, {}
+    for fname, plist in defined.items():
+        for idx, (p, _, marked) in enumerate(plist):
+            if not (marked and p): continue
+            bad = [(caller, args[idx][0] + ' [' + args[idx][1] + ']' if idx < len(args) else '(missing argument)')
+                   for caller, args in sites.get(fname, [])
+                   if idx >= len(args) or args[idx][1] not in ('stack', 'static', 'byval-param')]
+            if bad: violations.setdefault(fname, {})[p] = bad
+            else: exempt.setdefault(fname, {})[p] = len(sites.get(fname, []))
+    return exempt, violations
+
+def analyse(fname, params, body, exempt=None):
+    exempt = exempt or {}
+    blocks, order, pnames = parse(body, params)
+    deftab = build_deftab(blocks, order, pnames)
     ptrs = {n for n, (b, i, ins) in deftab.items() if b == 'param' or (ins and ins['type'] == 'ptr')}
 
     # liveness over ptr-typed names
@@ -133,18 +237,7 @@ def analyse(fname, params, body):
 
     # origin classification
     def root(n, depth=0):
-        """follow GEP/bitcast chains to a root kind"""
-        if n.startswith('@'): return 'static'
-        if depth > 12 or n not in deftab: return 'unknown'
-        b, i, ins = deftab[n]
-        if b == 'param': return 'param'
-        if ins['op'] == 'alloca': return 'stack'
-        if ins['op'] in ('getelementptr', 'addrspacecast'):
-            m = re.search(r'getelementptr[^,]*,\s*(?:\S+\s+)*?ptr\s+(%[\w.$-]+|@[\w.$-]+)', ins['rhs'])
-            if m: return root(m.group(1), depth + 1)
-        if ins['op'] == 'load': return 'loaded'
-        if ins['op'] == 'call': return 'call'
-        return 'other'
+        return root_kind(n, deftab, depth)
     def origin(n):
         b, i, ins = deftab[n]
         if b == 'param': return 'param'
@@ -185,6 +278,7 @@ def analyse(fname, params, body):
                         if kind in ('stack', 'static') and ((sb == b and si < i) or (sb != b and sb in dom[b])):
                             homed = 'yes'; break
                     if homed == 'NO' and any(k not in ('stack', 'static') for (_, _, k) in stores.get(n, [])): homed = 'heap-only'
+                    if homed == 'NO' and og == 'param' and n in exempt: homed = 'exempt'
                     findings.append((n, og, homed, b, i, callee(ins), ins['line']))
             for n in uses_of(ins):
                 if n in ptrs: live.add(n)
@@ -196,9 +290,11 @@ tot = defaultdict(int)
 percat = defaultdict(lambda: defaultdict(int))
 text = open(sys.argv[1]).read()
 rows = []
-for fname, params, body in split_functions(text):
+funcs = split_functions(text)
+exempt_all, violations_all = byvalue_params(funcs)
+for fname, params, body, link in funcs:
     if '--main-only' in sys.argv and not fname.startswith('Main__') and not fname.startswith('Loque'): continue
-    f, nsafe, deftab = analyse(fname, params, body)
+    f, nsafe, deftab = analyse(fname, params, body, exempt_all.get(fname))
     c = defaultdict(int)
     for (n, og, homed, b, i, cal, line) in f:
         c[(og.split(':')[0] if og.startswith('call-result') else og.split('(')[0], homed)] += 1
@@ -214,12 +310,24 @@ for (og, homed), v in sorted(tot.items(), key=lambda kv: (-kv[1], kv[0])):
     print(f"   {og:<28} homed={homed:<10} {v}")
 print()
 for fname, nsafe, nf, f, c in rows:
+    ex = Counter()
     for (n, og, homed, b, i, cal, line) in f:
-        if homed != 'yes' or DETAIL:
+        if homed == 'exempt' and not DETAIL:
+            ex[n] += 1
+        elif homed != 'yes' or DETAIL:
             print(f"{fname}: {n} [{og}] homed={homed}  live across call to {cal} (block {b})")
             if DETAIL: print("      ", line[:140])
+    for n, k in sorted(ex.items()):
+        nsite = exempt_all[fname][n]
+        chk = f"{nsite} direct call site(s) checked, all pass a stack/static address" if nsite else "no direct call site in this file, marker only"
+        print(f"{fname}: {n} [param] homed=exempt  {k} pairs; by-value aggregate; {chk}")
+    for n, bad in sorted(violations_all.get(fname, {}).items()):
+        for caller, what in bad:
+            print(f"{fname}: {n} is a by-value aggregate parameter but {caller} passes {what}  -- CONVENTION VIOLATION")
 if not rows:
     print("WARNING: no functions were analysed (wrong file, or --main-only matched nothing) -- this is NOT a pass")
 tot_s = sum(r[1] for r in rows); tot_p = sum(r[2] for r in rows)
 tot_n = sum(1 for r in rows for x in r[3] if x[2] == 'NO')
-print(f"TOTAL: functions {len(rows)}  safepoint call sites {tot_s}  live-across pairs {tot_p}  not homed {tot_n}")
+tot_x = sum(1 for r in rows for x in r[3] if x[2] == 'exempt')
+tot_v = sum(len(bad) for r in rows for bad in violations_all.get(r[0], {}).values())
+print(f"TOTAL: functions {len(rows)}  safepoint call sites {tot_s}  live-across pairs {tot_p}  not homed {tot_n}  exempt {tot_x}  violations {tot_v}")

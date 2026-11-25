@@ -2,7 +2,7 @@ UNSAFE MODULE Main;
 
 IMPORT Loque;
 IMPORT Thread;
-IMPORT WThread;
+(*IMPORT WThread;*)
 IMPORT RTCollector;
 IMPORT Word;
 IMPORT Text;
@@ -892,7 +892,10 @@ PROCEDURE checkMulti() : BOOLEAN =
         IF z < K_SIZE THEN
           kp := k + 10;
           <* ASSERT impMulti[y][z] = impMulti[0][z]*>
-          <* ASSERT NOT corruptR(impMulti[y][z], (kp*16 + kp) MOD 256) *>
+          (* sample: only check 0 *)
+          IF y = 0 THEN
+            <* ASSERT NOT corruptR(impMulti[y][z], (kp*16 + kp) MOD 256) *>
+          END;
           k := k + 1;
         ELSE
           <* ASSERT impMulti[y][z] = impMulti[y][z-K_SIZE] *>
@@ -1356,7 +1359,7 @@ PROCEDURE mainMS9() =
 
         Thread.Pause(0.5D0);
         RTCollector.Collect();
-        loque.write("+GC", NIL, WThread.GC);
+        (* loque.write("+GC", NIL, WThread.GC); *)
 (*        logMov(subject[7].num); *)
         scrubStack();
         INC(s);

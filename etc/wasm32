@@ -16,7 +16,7 @@ CC_FLAGS = " --target=wasm32-wasip1-threads"
   & " -pthread -matomics"
   & " -D_WASI_EMULATED_SIGNAL -D_WASI_EMULATED_MMAN"
   & " -mexception-handling -mllvm -wasm-enable-sjlj"
-  & " -mllvm -wasm-use-legacy-eh=true"
+  & " -mllvm -wasm-use-legacy-eh=false"
 
 SYSTEM_CC   = "clang -g" & CC_FLAGS
 SYSTEM_CXXC = "clang++ -g" & CC_FLAGS
@@ -79,7 +79,7 @@ llvmback_pic = "-relocation-model=static"
 % Must match the C side (-pthread -matomics): wasm-ld --shared-memory rejects
 % objects built without atomics/bulk-memory.
 llvmback_features = "-mattr=+atomics,+bulk-memory,+mutable-globals,+exception-handling"
-  & " -exception-model=wasm -wasm-enable-sjlj -wasm-use-legacy-eh=true"
+  & " -exception-model=wasm -wasm-enable-sjlj -wasm-use-legacy-eh=false"
 
 include("Unix.common")
 

@@ -1,12 +1,13 @@
 (* Copyright (C) 2026 Sunil Khare. All righs reserved. *)
 
-UNSAFE MODULE WThread EXPORTS Thread, RTThread, RTOS, Scheduler, RTHooks, WThread;
+UNSAFE MODULE WThread EXPORTS Thread, RTThread, RTOS, Scheduler, SchedulerPosix, RTHooks, WThread;
 
-IMPORT FloatMode, MutexRep, RTHeapRep, RTThread;
+IMPORT FloatMode, MutexRep, RTHeapRep, RTThread, Thread;
 IMPORT RT0, RTLinker;
 IMPORT RTError;
 IMPORT RTSync;
 IMPORT M3toC;
+FROM   Ctypes   IMPORT int;
 FROM   Cstddef  IMPORT size_t;
 FROM   Compiler IMPORT ThisFile, ThisLine;
 
@@ -1001,6 +1002,27 @@ PROCEDURE EnableSwitching () =
   BEGIN
     (* no user-level thread switching *)
   END EnableSwitching;
+
+(*-------------------------------------------------------- SchedulerPosix ---*)
+<*NOWARN*>PROCEDURE WaitProcess(pid: int; VAR status: int): int =
+  BEGIN
+    status := 1;
+    RETURN (-1);
+  END WaitProcess;
+
+<*NOWARN*>PROCEDURE IOWait (fd: CARDINAL; read: BOOLEAN; timeoutInterval: LONGREAL): WaitResult =
+  BEGIN
+    (* TODO: I/O multiplexing *)
+    RETURN WaitResult.Error;
+  END IOWait;
+
+<*NOWARN*>PROCEDURE IOAlertWait (fd: CARDINAL; read: BOOLEAN; timeoutInterval: LONGREAL): WaitResult 
+                       RAISES {Thread.Alerted} =
+  BEGIN
+    (* TODO: I/O multiplexing *)
+    RETURN WaitResult.Error;
+  END IOAlertWait;
+
 
 (*------------------------------------------------------------ Exceptions ---*)
 (* Copied from PTHREADS - consider no-op instead *)
