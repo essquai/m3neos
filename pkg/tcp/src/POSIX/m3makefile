@@ -1,0 +1,13 @@
+/* Makefile for tcp library (POSIX) */
+/* Copyright 1993 Digital Equipment Corporation. */
+/* Distributed only by permission. */
+/* Last modified on Thu Feb  9 15:55:57 PST 1995 by wobber     */
+
+Interface("TCPPosix")
+interface("Herrno")
+c_source("HerrnoC")
+implementation("IP")
+implementation("IPErrorPosix")
+implementation("TCP")
+implementation("TCPExtras")
+implementation("TCPPeer")
