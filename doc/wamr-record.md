@@ -1,6 +1,6 @@
 # ms9 on wasm32 under WAMR
 
-*Reflects plan v19, 2026-11-25. Text below is moved verbatim from dev-plan18.md (lines 564-628).*
+*Reflects plan v19, 2026-11-26. The v18 text below is moved verbatim from dev-plan18.md (lines 564-628); the repeat on Wasmer at the end is new.*
 
 <!-- v18 lines 564-628 -->
 ## ms9 on wasm32 under WAMR (v18)
@@ -68,4 +68,12 @@ Input: `llvm-dis` of the final bitcode, which is already shadow-stack-lowered (m
 - **`audit.py` (patched, register 73):** `not homed 0  exempt 23  violations 0`.
 - **Observation (register 15):** that temporary is `align 32` while the other `%struct.4` allocas are `align 4`, which looks like a leftover of the whole-size alignment bug (B1.6); harmless on wasm32.
 
+## ms9 on wasm32 under Wasmer (2026-11-26)
 
+**Status: passes. 200 of 200 runs, 100 on Cranelift and 100 on LLVM, with no failure.** This is the repeat of the batch above on the primary engine, and closes the open part of milestone M2.
+
+- **Build and command:** `m3neos -DTARGET=wasm32 -DMAX_MEMORY=134217728` in `test/src/n0/ms9`, then `wasmer run wasm32/ms9 --cranelift` (or `--llvm`). Wasmer needs no thread-count option (WAMR needed `--max-threads=16`, register 71).
+- **The 128 MiB ceiling is required.** At the default 32 MiB the first run exited 129: an uncaught runtime error raised by `NEW` (`AllocateTracedRef`) in `pageTest`, then the backstop raised again and `RTException__Crash` ended it (register 82). With 128 MiB the same binary passes.
+- **Pass test** (`m3rep.sh`): exit 0, no `assert`, `trap`, `unreachable`, `out of bounds` or `runtime error` text, and exactly one `mainMS9 END` line in the combined output. Every run produced exactly 261 lines (the WAMR logs varied from 301 to 305 because `printf` output interleaved). A run takes about 8 seconds; 100 runs took 831 s on Cranelift and 837 s on LLVM.
+- **Statistics:** zero failures in 200 runs bounds the failure rate below about 1.5% at 95% (the rule of three), and with the 112 WAMR runs the same program has now run 312 times without failure on two engines. The machine was otherwise quiet; no perturbation was applied.
+- **Not covered, as before (register 70):** a hit trace, the `+GC` counter, a `regs[]` hit and the local-`REF` variants.

@@ -1,6 +1,8 @@
 # Collector cost on wasm32
 
-*Reflects plan v19, 2026-11-25. Text below is moved verbatim from dev-plan18.md (lines 472-563).*
+*Reflects plan v19, 2026-11-26. The v18 text below is moved verbatim from dev-plan18.md (lines 472-563); the Wasmer measurement at the end is new.*
+
+**Update, 2026-11-26.** The cost below was the WAMR interpreter. On Wasmer a collect takes about 4 times the native one (the last section). The experiments listed here were not needed and were not run.
 
 <!-- v18 lines 472-563 -->
 ## Collector cost on wasm32 (v17 diagnosis)
@@ -95,4 +97,24 @@ Dropped options: the **fast interpreter** (the exceptions build requires the cla
 
 Not a correctness problem; it decides how large a collection test on wasm32 can be. `ms9` now runs on wasm32 (next section), with the harness sized to the engine (rule 18).
 
+## Wasmer measurement (2026-11-26)
 
+`ms14`, five runs per backend interleaved with the native build, driven by `m3cost.py`; medians in microseconds. The WAMR column is the v18 figure; the last column is the v18 native (`m3C` + PTHREAD) figure. Heuristic precision only: the runs are short and the machine was otherwise quiet.
+
+| item | Cranelift | default | LLVM | native (this run) | WAMR (v18) | native (v18) |
+|---|---|---|---|---|---|---|
+| make50, pass 1 | 920 | 964 | 991 | 4 | 126,328 | 5 |
+| down+catch+scrub, pass 1 | 134 | 125 | 116 | 20 | 1,336 | 20 |
+| collect #1, pass 1 | 1,658 | 1,757 | 1,867 | 366 | 245,683 | 367 |
+| churn, pass 1 | 212 | 226 | 329 | 1,192 | 36,874 | 1,346 |
+| collect #2, pass 1 | 2,725 | 2,749 | 3,120 | 862 | 513,207 | 2,502 |
+| collect #1, pass 2 | 2,808 | 2,803 | 3,346 | 565 | 485,249 | 1,528 |
+| collect #2, pass 2 | 2,704 | 2,686 | 2,914 | 1,059 | 485,983 | 1,229 |
+
+**Median single collect:** Cranelift 2,721 µs, default 2,726 µs, LLVM 3,055 µs, native 730 µs, WAMR 485,616 µs. Each Wasmer backend is **about 4 times native**, against 221 to 351 times on WAMR. The "default" configuration (`wasmer run FILE` with no flag) behaves as Cranelift, which is the first backend compiled into this build (order: Cranelift, LLVM, Singlepass).
+
+- **Singlepass cannot run the binary:** it reports that it does not support the module's required features (the exnref encoding is the likely cause).
+- **The collect is about a millisecond and a half slower than native in absolute terms,** and flat across both passes, so a pass costs a few milliseconds at this heap size. The per-page cost hypothesis of v18 (cost proportional to the heap pages that stack words pin) was not tested again.
+- **The first `NEW` triggers a collection on wasm32** (make50, pass 1: about 1,000 µs) and does not on native (4 µs); the same was seen on WAMR (register 83).
+- **Not measured:** other heap sizes. `ms14` is one size; the ratio at a larger heap is untested on Wasmer.
+- **One of 105 LLVM runs trapped** with the assertion in register 81 (exit 129). It was a startup race in the thread code, not a speed matter, and is fixed (register 81).

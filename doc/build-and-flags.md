@@ -1,6 +1,6 @@
 # Build flavours, installed library, target description, wasm32 flags
 
-*Reflects plan v19, 2026-11-25. Text below is moved verbatim from dev-plan18.md (lines 629-645, 778-843).*
+*Reflects plan v19, 2026-11-26. The v18 text below is moved verbatim from dev-plan18.md (lines 629-645, 778-843); the link-ceiling table at the end is new.*
 
 <!-- v18 lines 629-645 -->
 ## Build flavours and the installed library (v18)
@@ -88,4 +88,14 @@ Recorded so they are not rediscovered. Applies to the C and assembler parts of t
 
 ---
 
+## Link ceilings in use (2026-11-26)
 
+The ceiling is set with `-DMAX_MEMORY=<bytes>` on the `m3neos` command line; it feeds `--max-memory` (above). The default is 33,554,432 (32 MiB).
+
+| Program | Ceiling | Note |
+|---|---|---|
+| `ms10`, `ms13`, `ms14`, `ms15`, `ms16` | default, 32 MiB | |
+| `ms17` | varied; 32 MiB for the ceiling run | a clean `NEW()` failure at 16 MiB live |
+| `ms9` | **128 MiB** (`-DMAX_MEMORY=134217728`) | at 32 MiB `pageTest` dies with an uncaught runtime error from `NEW`, exit 129 (register 82) |
+
+Rebuilding a program drops its link settings back to the default, so a rebuild of `ms9` needs the flag again.

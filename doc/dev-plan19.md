@@ -28,7 +28,7 @@ carry one line: `reflects plan vN, date`. Git is the version history.
 |---|---|---|
 | [`collector-cost.md`](collector-cost.md) | Collector cost on wasm32 | 472–563 |
 | [`build-and-flags.md`](build-and-flags.md) | Build flavours, installed library, target description, wasm32 flags | 629–645; 778–843 |
-| [`wamr-record.md`](wamr-record.md) | ms9 under WAMR (the WAMR/wasi-libc facts at 699–716 stay in [`phase-l.md`](phase-l.md) and are cross-referenced here) | 564–628 |
+| [`wamr-record.md`](wamr-record.md) | ms9 under WAMR, and its repeat on Wasmer (the WAMR/wasi-libc facts at 699–716 stay in [`phase-l.md`](phase-l.md) and are cross-referenced here) | 564–628 |
 | [`phase-d.md`](phase-d.md) | Precise roots, parked (a future option) | 2212–2263 |
 | [`dev-plan-changelog.md`](dev-plan-changelog.md) | Plan v19 entry; revision notes v10–v18, v18 near-term sequence, commit-granularity table (verbatim, superseded) | 1–89 (notes); 331–347; 2473–2491 |
 
@@ -42,12 +42,12 @@ old "Appendices" heading, both renamed or removed).
 
 ### 1.1 Purpose, scope and snapshot
 
-This plan covers the new work for the wasm32 target of a CM3-derived Modula-3 compiler. The x86_64/Linux target, through the `m3llhost` back end and the PTHREAD runtime, is an already-working baseline and is frozen. For wasm32 the plan covers the `m3llwasm` back end, the `WTHREAD` runtime (`WThread`, `nthr`, `nsyn`), the core library (`pkg/neocore`, which replaces `pkg/neosys`) and, next, `neolib`. The primary engine is Wasmer 7.0.1 (exnref build); it is provisional until milestone M6 is proved. WAMR was the earlier reference, and its results are kept in [`wamr-record.md`](wamr-record.md).
+This plan covers the new work for the wasm32 target of a CM3-derived Modula-3 compiler. The x86_64/Linux target, through the `m3llhost` back end and the PTHREAD runtime, is an already-working baseline and is frozen. For wasm32 the plan covers the `m3llwasm` back end, the `WTHREAD` runtime (`WThread`, `nthr`, `nsyn`), the core library (`pkg/neocore`, which replaces `pkg/neosys`) and, next, `neolib`. The primary engine is Wasmer 7.0.1 (exnref build); it was provisional until milestone M6 was proved, and was confirmed on 2026-11-26 (Cranelift, the backend `wasmer run` picks by default, is the working choice; the LLVM backend also runs; the one failure seen on the way was a startup race in `WThread`, now fixed, register 81). WAMR was the earlier reference, and its results are kept in [`wamr-record.md`](wamr-record.md).
 
-**Snapshot, 2026-11-25.**
-- **Done:** phases A, B1, B2, C and E, and L1. The wasm32 runtime, the unmodified collector and exceptions run end to end on Wasmer, in tests from `ms9` to `ms17`. The audit gate is 94 of 94, and the memory sizing rule is written down.
-- **Next:** prove Wasmer systematically before relying on it (collector cost, a repeat of the `ms9` batch), then `neolib` for wasm32.
-- **Still to come before the library is useful:** milestones M6 to M9: collector speed, `neolib`, system services (spawn, UDP/TCP), and a real program.
+**Snapshot, 2026-11-26.**
+- **Done:** phases A, B1, B2, C and E, and L1. The wasm32 runtime, the unmodified collector and exceptions run end to end on Wasmer, in tests from `ms9` to `ms17`. The audit gate is 94 of 94, and the memory sizing rule is written down. Wasmer is proved (2026-11-26): a collection costs about 4 times native, and `ms9` ran 200 of 200 on Cranelift and LLVM. Milestones M1 to M6 are met.
+- **Next:** `neolib` for wasm32 (M7). Open beside it: `RTIO` is not flushed at exit (53). A startup race found on the way (81) is fixed.
+- **Still to come before the library is useful:** milestones M7 to M9: `neolib`, system services (spawn, UDP/TCP), and a real program.
 
 ### 1.2 Phases (a short narrative and a three-bullet status each; the table is the index)
 
@@ -73,7 +73,7 @@ Four invariants govern every blocking primitive: `watch` changes only under `wat
 wasm32 differs from x86_64 in three places. A thread starts through `wasi_thread_start` into `nthr_start32` (`nthr_wasi.s`). There is no pthread to join, so reaping waits on an `ended` flag with `memory.atomic.wait32`. The saved-register block is zero on wasm32 and filled on x86_64, so the conservative scan treats both alike. The context layout is checked by size at start-up and by a `_Static_assert` on `ended`.
 
 **Status.**
-- Complete and in use: `ms4` and `ms7` to `ms9` on x86_64 and wasm32 (`ms9`: twelve threads, 112 of 112 runs under WAMR), and `ms10`, `ms13`, `ms15` and `ms17` under Wasmer.
+- Complete and in use: `ms4` and `ms7` to `ms9` on x86_64 and wasm32 (`ms9`: twelve threads, 112 of 112 runs under WAMR), and `ms10`, `ms13`, `ms15` and `ms17` under Wasmer. On 2026-11-26 a startup race was found and fixed: the original thread's stack was not published before the program's main thread could collect (81).
 - Open and small: 28 (stale `joinSyn` in `AlertJoin`), 34 (`After` and `VisitAllRefs` call `SuspendOthers` without the heap lock), 37 (unclaimed-thread reaper, slot-table growth), 27 (nref/nthr clean-ups).
 - Out of scope: memory ordering on native ARM (19); targets are x86_64 and wasm32.
 
@@ -116,8 +116,10 @@ The phase was proved in three stages. Stage 1 (`ms4`, `ms7`) validated stop-the-
 
 On wasm32, `ms9` ran 112 of 112 times under WAMR and stack-held objects never moved in 1,400 observed transitions. A bounded traced heap fails when the allocator gives up while an incremental collection is in flight (41). The documented space bound is about 4A pages incremental and 3A stop-and-copy; `ms17` measured about 5A and 4A, and its sizing rule and the clean abort at the link ceiling are in `doc/memory-audits.md`.
 
+On Wasmer the `ms9` batch was repeated on 2026-11-26: 100 of 100 runs on Cranelift and 100 of 100 on LLVM, each run the same 261 lines, with no assertion or trap. `ms9` needs a link ceiling of 128 MiB (`-DMAX_MEMORY=134217728`); at the default 32 MiB it ends with an uncaught runtime error from `NEW` (82). Details are in [`wamr-record.md`](wamr-record.md).
+
 **Status.**
-- Complete under the conservative scheme on x86_64 and wasm32; repeating the `ms9` batch on Wasmer is the open part of milestone M2.
+- Complete under the conservative scheme on x86_64 and wasm32, including the `ms9` batch on Wasmer (milestone M2).
 - Open: 46 and 70 (local-`REF` variants, a `regs[]` hit, `ms9` residue), 48 (allocator retry, optional), 49 (collector mode), 40 (diagnostics clean-up).
 - Parked: the chain walk (25b) with Phase D.
 
@@ -131,7 +133,7 @@ Two interactions with the shadow-stack (gcroot) lowering were found and fixed. T
 The mechanism was built on legacy wasm EH under WAMR 2.4.5 with a local patch for exceptions in spawned threads. The exnref encoding failed there (`invalid local type 0x69`). The project has since moved to exnref on Wasmer 7.0.1: the build lines now carry `-wasm-use-legacy-eh=false`, and `ms13`, `ms15` and `ms16` pass. `ms15` covers an uncaught exception in main and in a worker (a clean abort with a message, as on x86_64), and `ms16` covers nested procedures and procedure values. **Note:** `phase-e.md` still records the legacy-EH flags; the exnref flag change is made in v19 text only.
 
 **Status.**
-- Complete on exnref: `ms13`, `ms15`, `ms16` on Wasmer. `ms14` (collection after a catch) passed on WAMR and has not been re-run on Wasmer.
+- Complete on exnref: `ms13`, `ms14`, `ms15`, `ms16` on Wasmer. `ms14` (collection after a catch) was re-run on 2026-11-26: 215 runs on Cranelift, LLVM and the default, one of them failed on the assertion in register 81, a startup race now fixed.
 - Closed this session: 62 (nested procedures), 66 (worker-thread uncaught exception), 67 (`jmp_buf`: 164 bytes, alignment 4, matches the target setting).
 - Non-blocking leftovers: `__m3_personality_v0` (declared, attached to nothing), `ExceptionDebug.argType`, 64 (`llvm18wasm` parity, future work), 68 (parked). Phase O inherits one criterion: values modified after a `setjmp` must stay memory-resident.
 
@@ -177,11 +179,11 @@ Phase D would replace the conservative scan with a walk of each thread's gcroot 
 | # | Milestone | Status | Evidence / open register items |
 |---|---|---|---|
 | M1 | The runtime runs on wasm32: threads, parking, arenas, orderly exit | ✅ | `ms10`, `ms13` exit 0 on Wasmer (2026-11-25) |
-| M2 | The unmodified collector is correct on wasm32 with threads | ◐ | `ms9` 112/112 on WAMR. Repeat batch on Wasmer not recorded (70, 71) |
-| M3 | Exceptions on the primary engine: raise, catch, finally, worker thread, collection after catch | ✅ | `ms13`, `ms15`, `ms16` on Wasmer (confirmed by the user, 2026-11-25). `ms14` not re-run on Wasmer in this record |
+| M2 | The unmodified collector is correct on wasm32 with threads | ✅ | `ms9` 112/112 on WAMR; 100/100 on Wasmer Cranelift and 100/100 on LLVM (2026-11-26, 128 MiB link, 82). What the runs do not cover is in 70 |
+| M3 | Exceptions on the primary engine: raise, catch, finally, worker thread, collection after catch | ✅ | `ms13`, `ms15`, `ms16` on Wasmer (2026-11-25); `ms14` on Wasmer (2026-11-26), with one failure in 215 runs, a startup race now fixed (81) |
 | M4 | Memory behaviour is predictable: sizing rule and a clean failure at the ceiling | ✅ | `ms17` sweeps and the 32 MiB ceiling run (clean abort with message). Allocator retry (48) optional |
 | M5 | Generated code is checked mechanically: audit gate on all wasm32 bitcode | ✅ | 94/94 across the library, `ms10`, `ms13`, `ms14` and the test programs, after two fixes to `audit.py` (by-value aggregate exemption; per-edge phi liveness, which cleared `RTLinker`). The gate cannot see calls `llc`'s sjlj pass adds (42) |
-| M6 | Collector speed is acceptable on the primary engine; the proving-out that confirms or rolls back the Wasmer choice | ☐ | Only measured under the WAMR interpreter (221 to 351 times slower per collect). Re-measure on Wasmer (65) |
+| M6 | Collector speed is acceptable on the primary engine; the proving-out that confirms or rolls back the Wasmer choice | ✅ | `ms14` on Wasmer: a collect takes about 4 times native on Cranelift and on LLVM, against 221 to 351 times on WAMR (2026-11-26; [`collector-cost.md`](collector-cost.md)). Measured at one heap size only |
 | M7 | Core library: `neolib` builds and a program using it runs | ☐ | 59 |
 | M8 | System services: process spawn and UDP/TCP through the host | ☐ | 23, 57, 75. Direction recorded 2026-11-03. Host-side design for Wasmer undecided |
 | M9 | *Proposed:* a representative real program (for example the front end compiling a file) runs on wasm32 | ☐ | Also the measurement program Phase O waits for |
@@ -190,10 +192,11 @@ Phase D would replace the conservative scan with a walk of each thread's gcroot 
 
 ## 2. Register
 
-### 2.1 Next candidates (draft; at most three, dated 2026-11-25)
-1. **Prove Wasmer systematically (65, M6, and the rest of M2).** Re-measure the collector at several sizes against the WAMR figures, re-run `ms14`, and repeat the `ms9` batch, so the engine choice is confirmed before anything else depends on it.
-2. **`neolib` for wasm32 (59),** as far as the next test needs. Starts M7.
-3. **`RTIO` is not flushed at exit (53).** A small fix that bites every program that prints.
+### 2.1 Next candidates (draft; at most three, dated 2026-11-26)
+1. **`neolib` for wasm32 (59),** as far as the next test needs. Starts M7.
+2. **`RTIO` is not flushed at exit (53).** A small fix that bites every program that prints.
+
+*Done 2026-11-26 and removed from this list:* proving Wasmer (M2, M3 and M6) and the `ms14` startup race (81); see the changelog.
 
 ### 2.2 Open items
 
@@ -303,12 +306,15 @@ closed in place (or accepted), 11–16 date from v10, 17–22 from v11, 23–32 
 | 51 | ✅ **Real `setjmp`/`longjmp` on wasm32: exceptions that reach a handler** — new in v16, **closed in v17** | E (pulled forward) | The back end emits `_setjmp` for every `TRY ... EXCEPT` and for a FINALLY body containing EXIT/RETURN, and `CsetjmpC.c` calls `_longjmp` to unwind; an ordinary `TRY ... FINALLY` is a handler frame and uses no `setjmp`. The placeholders (`WasiCstd.c`) make `_setjmp` return 0 and `_longjmp` print a message and abort, so a `TRY` body runs but any exception raised to a handler stops the program. wasi-libc has no implementation unless built for the exception-handling proposal with `-mllvm -wasm-enable-sjlj` (and its `setjmp.h` requires `__wasm_exception_handling__`, hence `-mexception-handling` in the C flags). One `llc` experiment with `-wasm-enable-sjlj -exception-model=wasm` produced Emscripten-style `saveSetjmp`/`testSetjmp` calls, so the lowering expects runtime support behind it. Options, not decisions: (a) EH proposal plus sjlj lowering with a runtime for it, and WAMR built with its exception-handling option (name from memory: `WAMR_BUILD_EXCE_HANDLING`, unverified); (b) native wasm EH generated by `m3llwasm` for `TRY` (belongs with Phase E and register 16); (c) a mechanism without `setjmp`. Needed before library code that raises (for example `Rd.EndOfFile`) is used. **(v17) Closed:** option (a), LLVM 22 `-wasm-enable-sjlj` with legacy wasm EH on WAMR 2.4.5 (with the local thread patch), implemented and validated by `ms13` and `ms14`; names `setjmp`/`longjmp`, `-lsetjmp`, call-site `nounwind` and the pre-lowering are in "Exceptions on wasm32 (v17)". The `WAMR_BUILD_EXCE_HANDLING` option name from v16 was right (the migration checklist uses it). |
 
 ### 2.5 Changed and new in v19 (proposed)
-- **Closed this session:** 62 (nested procedures, `ms16`), 66 (worker-thread uncaught exception, `ms15`), 67 (`jmp_buf` size and alignment), the sizing rule for 41, and the clean failure at the link ceiling (41, 49). The rows above are v18 text and are updated here, not in place.
-- **77** Wasmer (exnref) is the primary engine; re-check WAMR-era results against it.
+- **Closed this session:** 62 (nested procedures, `ms16`), 66 (worker-thread uncaught exception, `ms15`), 67 (`jmp_buf` size and alignment), the sizing rule for 41, and the clean failure at the link ceiling (41, 49); **81** (the startup race above); **65** (collector cost on wasm32: the cost was the WAMR interpreter; about 4 times native on Wasmer, 2026-11-26, one heap size, with the optional experiments in `collector-cost.md` no longer needed); **44** is met on Wasmer too (`ms9` 200 of 200). The rows above are v18 text and are updated here, not in place.
+- **77** Wasmer (exnref) is the primary engine; re-check WAMR-era results against it. **(2026-11-26)** Done for `ms9` (200 of 200), `ms14` and the collector cost (65). Not repeated on Wasmer: `ms4`, `ms7` and `ms8` (x86_64 stages) and the other WAMR-era wasm32 probes.
 - **78** `RTException.DumpStack` gives no M3 stack dump on wasm32.
 - **79** Footprint differs between targets (`Traced 458752:131012` on wasm32 against
   `327872:16` on x86_64 in `ms15 ok`); the second number is free bytes, not investigated.
 - **80** `llvm18wasm` parity (64) re-filed as future work: only needed if LLVM 18 stays supported.
+- **81** *(new and closed 2026-11-26)* **Startup race: the original thread's stack is not published before the main thread can collect.** `ASSERT ring.context.stack_ptr # NIL` in `WThread.ProcessStacks` (`WThread.m3` line 772 in the user's tree), exit 129. Seen once in 215 Wasmer runs of `ms14` (LLVM 1 of 105; Cranelift 0 of 105; default 0 of 5; `ms9` 0 of 200); the trace ends `nthr_start32`, `RTLinker__AddUnit`, the program's main thread, collecting. **Cause.** The program is not single-threaded: `Init` makes the original thread slot 0 of the ring (`nthr_default`: watch `relief`, `stack_ptr` zero) and `InitialThread` runs the program's main on a second thread while slot 0 waits in `thread_vigil`. A thread publishes `stack_ptr` only when it parks, waits, blocks on a contended lock or enters `thread_vigil` (`nthr.c`: `nthr_wait`, `nthr_lock`, `nthr_park`, `nthr_vigil`), and `SuspendOthers` waits only for `vigilant` threads, so a `relief` thread is neither waited for nor given a stack range. If the main thread's first collection began before slot 0 reached `thread_vigil`, `ProcessStacks` met slot 0 with `stack_ptr` NIL and asserted. A collection racing a raise was considered and rejected: the coordinator's own entry is written by `thread_stack32` immediately before the walk, and a raise touches only the exception chain. **Confirmed** (the user, 2026-11-26) by widening the window: a busy-wait of 50 million iterations in `nthr_create` after the spawn made `ms14` fail 25 of 25 on Wasmer. **Fixed** by one call, `thread_stack32()` in `InitialThread` before `thread_create`, so the original thread publishes its own stack before the child exists (`pkg/neocore` only; patch `InitialThread-publish-stack.patch`). With the delay still in: 30 of 30 pass. With the delay removed: 275 of 275 pass (25 by hand, then 250 in loops). The invariant to keep: every thread in the ring must have a valid published `stack_ptr` from the moment it can be seen by a collector, not only from its first park. This is the case register 22's evidence did not reach (collections before any thread was forked). The `ms14` batch on both backends was not repeated after the fix.
+- **82** *(new 2026-11-26)* **`ms9` needs a 128 MiB link ceiling.** Linked with `-DMAX_MEMORY=134217728` it passes; at the default 32 MiB it dies in `pageTest` with an uncaught runtime error from `NEW` (`AllocateTracedRef`), exit 129. This is the bounded-heap behaviour of 41 and 49, not an engine fault; `ms9`'s link maximum was not recorded before (see 41 and 44).
+- **83** *(new 2026-11-26)* **The first `NEW` triggers a collection on wasm32 and not on x86_64.** `ms14`'s `make50` takes about 1,000 microseconds on Wasmer (126,328 on WAMR) against 4 on native. Not investigated; harmless at the present collect cost.
 
 ---
 
@@ -450,6 +456,7 @@ Rules 1 to 13 come from Phase C's harness work, 14 to 17 from v17, 18 to 20 from
 
 **Candidate from this session (not yet adopted; the user decides).**
 - **21.** A wrapper or sweep script is part of the experiment: run it once on a known-good case before reading anything into its results. (The first `sweep.sh` and the `timeout` runs cost most of a session.)
+- **22.** *(proposed 2026-11-26)* Confirm a suspected race by widening its window deterministically before fixing it, then apply the fix with the delay still in. (A busy-wait after the spawn turned a one-in-215 failure into 25 of 25, and the fix passed 30 of 30 under it: register 81.)
 
 ### 3.3 Lessons by phase (pointers; chronology is in [`dev-plan-changelog.md`](dev-plan-changelog.md))
 - **A:** the watch-transition rules and the memory-ordering table, and why `nthr_lock` exists: [`phase-a.md`](phase-a.md), addendum 3.

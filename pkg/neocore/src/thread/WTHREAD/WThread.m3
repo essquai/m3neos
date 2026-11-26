@@ -922,6 +922,9 @@ PROCEDURE InitialThread(binder : RT0.Binder) =
     routine := LOOPHOLE(RTLinker.AddUnit, Routine);
     arg     := LOOPHOLE(binder, ADDRESS);
     IF LinkNexus(t.axis) = NIL THEN Die(ThisLine(), "WThread.InitialThread NIL Nexus") END;
+    (* save the stack pointer to the thread context. Covers the case of
+       a collection immediately kicked off by the spawned thread *)
+    thread_stack32();
     WITH r = thread_create(t.context, t.axis.threadSyn, defaultStackSize, routine, arg, t.axis) DO
       IF r < 0 THEN DieI(ThisLine(), r) END;
     END;

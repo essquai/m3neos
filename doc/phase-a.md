@@ -1,6 +1,6 @@
 # Baseline and Phase A
 
-*Reflects plan v19, 2026-11-25. Text below is moved verbatim from dev-plan18.md (lines 729-777, 844-1128).*
+*Reflects plan v19, 2026-11-26. Text below is moved verbatim from dev-plan18.md (lines 729-777, 844-1128).*
 
 <!-- v18 lines 729-777 -->
 ## Baseline (no new work) — x86_64 / Linux via `m3llhost` + PTHREAD
@@ -339,4 +339,8 @@ the `ms4` or `ms7` runs (13 collections in the last `ms7` run); none was seen in
 
 ---
 
+## Startup publication of the original thread's stack (2026-11-26)
 
+*New text, not from v18.* The original thread (slot 0 of the ring, made by `WThread.Init` through `nthr_default` with `watch = relief` and a zero `stack_ptr`) runs `InitialThread`, spawns the program's main thread and then waits in `thread_vigil`. A thread publishes `stack_ptr` only when it parks, waits, blocks on a contended lock or enters `thread_vigil`, and `SuspendOthers` waits only for `vigilant` threads. So between the spawn and the wait the original thread is in the ring with a NIL range, and a collection started by the main thread in that window asserted in `ProcessStacks` (register 81; once in 215 `ms14` runs on Wasmer, 25 of 25 with the window widened by a busy-wait). The fix is `thread_stack32()` in `InitialThread` before `thread_create`.
+
+**Rule to keep:** a thread must have a valid published `stack_ptr` from the moment a collector can see it in the ring, not only from its first park. `nthr_create` already meets it (it sets `stack_ptr` to the new stack's top); `nthr_default` does not, and `InitialThread` now supplies it for the one thread made that way. Register 22's evidence (collections before any thread is forked) did not reach this window.

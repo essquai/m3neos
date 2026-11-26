@@ -1,6 +1,16 @@
 # Changelog: revision notes v10-v18, the v18 near-term sequence and the v18 commit-granularity table, verbatim and superseded
 
-*Reflects plan v19, 2026-11-25. Text below is moved verbatim from dev-plan18.md (lines 1-89, 331-347, 2473-2491).*
+*Reflects plan v19, 2026-11-26. Text below is moved verbatim from dev-plan18.md (lines 1-89, 331-347, 2473-2491).*
+
+## Plan v19, revision of 2026-11-26 (Wasmer proved)
+
+The plan is still v19; the sections below were changed, and the changed text is in the places named.
+
+- **Wasmer is confirmed as the primary engine** (milestones M2, M3 and M6 met). `ms14` on Wasmer: a collect takes about 4 times native on Cranelift and LLVM, against 221 to 351 times on WAMR ([`collector-cost.md`](collector-cost.md)). `ms9` on Wasmer: 100 of 100 on Cranelift and 100 of 100 on LLVM ([`wamr-record.md`](wamr-record.md)). Singlepass cannot run the binaries. Cranelift is the default backend. LLVM is a working second backend.
+- **`ms9` needs a 128 MiB link ceiling** (register 82; [`build-and-flags.md`](build-and-flags.md)).
+- **A startup race was found and fixed (register 81).** The `ms14` assertion seen once in 215 runs was the original thread's `stack_ptr` being NIL when the main thread's first collection walked the ring. Confirmed by widening the window (25 of 25 failures), fixed by publishing the original thread's stack in `InitialThread` (30 of 30 with the delay, 275 of 275 without). Working-rule candidate 22 proposed.
+- **New register rows 81 to 83:** the race above (closed), the `ms9` ceiling, and the first `NEW` triggering a collection on wasm32 only. **65 and 44** closed or met. Rows 77 and the next-candidates list updated.
+- **Not done:** collector cost at other heap sizes; `ms4`, `ms7`, `ms8` on Wasmer.
 
 ## Plan v19 (2026-11-25)
 
